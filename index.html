@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1976d2" />
+    <meta name="description" content="PointMe - Appointment Scheduling and Business Management" />
+    
+    <!-- PWA support -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    
+    <!-- Preconnect to important domains -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- Material Icons and Roboto font -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
+    />
+    
+    <!-- iOS PWA meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PointMe" />
+    
+    <!-- Splash screen images -->
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-2048-2732.png"
+      media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-1668-2388.png"
+      media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-1536-2048.png"
+      media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-1242-2688.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-1125-2436.png"
+      media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash/apple-splash-828-1792.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    
+    <!-- SEO meta tags -->
+    <meta name="author" content="PointMe" />
+    <meta name="keywords" content="appointments, scheduling, business management, booking" />
+    <meta property="og:title" content="PointMe" />
+    <meta property="og:description" content="Appointment Scheduling and Business Management" />
+    <meta property="og:image" content="/icons/og-image.png" />
+    <meta property="og:url" content="https://pointme.app" />
+    <meta name="twitter:card" content="summary_large_image" />
+    
+    <title>PointMe</title>
+
+    <!-- Offline support -->
+    <style>
+      .offline-message {
+        display: none;
+        position: fixed;
+        bottom: 16px;
+        left: 16px;
+        right: 16px;
+        background: #323232;
+        color: white;
+        padding: 16px;
+        border-radius: 4px;
+        text-align: center;
+        z-index: 9999;
+      }
+      body.offline .offline-message {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div class="offline-message">
+      You are currently offline. Some features may be limited.
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    <noscript>
+      <div style="padding: 20px; text-align: center;">
+        Please enable JavaScript to use PointMe.
+      </div>
+    </noscript>
+  </body>
+</html>

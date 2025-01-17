@@ -1,9 +1,11 @@
 import React from 'react'
 import { useForm, Controller } from 'react-hook-form'
-import { TextField, Button, Box } from '@mui/material'
+import { TextField, Button, Box, Typography, Divider, CircularProgress } from '@mui/material'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '../stores/authStore'
+import { useNavigate } from 'react-router-dom'
+import GoogleIcon from '@mui/icons-material/Google'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -13,23 +15,27 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>
 
 const LoginForm: React.FC = () => {
-  const { control, handleSubmit } = useForm<LoginFormData>({
+  const navigate = useNavigate()
+  const { control, handleSubmit, formState: { isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   })
-  const login = useAuthStore((state) => state.login)
+  
+  const { login, loginWithGoogle, loading, error, clearError, isAuthenticated } = useAuthStore()
+
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard')
+    }
+  }, [isAuthenticated, navigate])
 
   const onSubmit = async (data: LoginFormData) => {
-    // Here you would typically make an API call to authenticate
-    // For this example, we'll just simulate a successful login
-    login(
-      {
-        id: '1',
-        name: 'John Doe',
-        email: data.email,
-        role: 'user',
-      },
-      'fake-jwt-token'
-    )
+    clearError()
+    await login(data.email, data.password)
+  }
+
+  const handleGoogleLogin = async () => {
+    clearError()
+    await loginWithGoogle()
   }
 
   return (
@@ -63,22 +69,45 @@ const LoginForm: React.FC = () => {
             margin="normal"
             required
             fullWidth
-            name="password"
             label="Password"
             type="password"
-            id="password"
             autoComplete="current-password"
             error={!!error}
             helperText={error?.message}
           />
         )}
       />
-      <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
-        Sign In
+
+      {error && (
+        <Typography color="error" variant="body2" sx={{ mt: 2 }}>
+          {error}
+        </Typography>
+      )}
+
+      <Button
+        type="submit"
+        fullWidth
+        variant="contained"
+        sx={{ mt: 3, mb: 2 }}
+        disabled={loading}
+      >
+        {loading ? <CircularProgress size={24} /> : 'Sign In'}
+      </Button>
+
+      <Divider sx={{ my: 2 }}>OR</Divider>
+
+      <Button
+        fullWidth
+        variant="outlined"
+        startIcon={<GoogleIcon />}
+        onClick={handleGoogleLogin}
+        disabled={loading}
+        sx={{ mb: 2 }}
+      >
+        Sign in with Google
       </Button>
     </Box>
   )
 }
 
 export default LoginForm
-
