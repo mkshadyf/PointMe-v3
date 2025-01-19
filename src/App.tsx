@@ -1,24 +1,34 @@
-import React, { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { ThemeProvider, createTheme } from '@mui/material'
+import { Suspense } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { SWRConfig } from 'swr'
+import { Toaster } from './components/ui/toaster'
 import { AuthProvider } from './lib/auth/AuthProvider'
-import { ProtectedRoute } from './lib/auth/ProtectedRoute'
-import { MainLayout } from './layouts/MainLayout'
-import { registerServiceWorker, setupNetworkStatusHandlers } from './lib/pwa/registerSW'
+import { ThemeProvider, createTheme } from '@mui/material'
+import { LoadingSpinner } from './components/ui/loading'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Pages
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import ResetPassword from './pages/auth/ResetPassword'
-import VerifyEmail from './pages/auth/VerifyEmail'
+import Home from './pages/Home'
+import Login from './components/auth/Login'
+import Register from './components/auth/Register'
+import ForgotPassword from './components/auth/ForgotPassword'
+import ResetPassword from './components/auth/ResetPassword'
 import Dashboard from './pages/Dashboard'
-import Appointments from './pages/appointments/Appointments'
-import Profile from './pages/profile/Profile'
 import BusinessProfile from './pages/business/BusinessProfile'
 import BusinessSettings from './pages/business/BusinessSettings'
-import AdminDashboard from './pages/admin/AdminDashboard'
+import Appointments from './pages/appointments/Appointments'
+import AppointmentDetails from './pages/appointments/[id]'
+import AppointmentPayment from './pages/appointments/[id]/payment'
 import AdminSettings from './pages/admin/AdminSettings'
-import Unauthorized from './pages/auth/Unauthorized'
+import NotFound from './pages/NotFound'
+import Unauthorized from './components/auth/Unauthorized'
+import VerifyEmail from './components/auth/VerifyEmail'
+import Profile from './pages/Profile'
+import AdminDashboard from './pages/admin/AdminDashboard'
+
+// Protected route wrapper
+import { ProtectedRoute } from './lib/auth/ProtectedRoute'
+import { MainLayout } from './layouts/MainLayout'
 
 // Create theme
 const theme = createTheme({
@@ -46,98 +56,63 @@ const theme = createTheme({
       },
     },
   },
-});
+})
 
-function App() {
-  useEffect(() => {
-    registerServiceWorker();
-    setupNetworkStatusHandlers();
-  }, []);
-
+export default function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+    <ErrorBoundary>
+      <SWRConfig
+        value={{
+          revalidateOnFocus: false,
+          shouldRetryOnError: false,
+        }}
+      >
+        <ThemeProvider theme={theme}>
+          <AuthProvider>
+            <Router>
+              <Suspense fallback={<LoadingSpinner />}>
+                <Routes>
+                  {/* Public routes */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/unauthorized" element={<Unauthorized />} />
+                  <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* Protected routes */}
-            <Route element={<MainLayout />}>
-              {/* Customer routes */}
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/appointments"
-                element={
-                  <ProtectedRoute>
-                    <Appointments />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                }
-              />
+                  {/* Protected routes */}
+                  <Route element={<MainLayout />}>
+                    <Route
+                      element={
+                        <ProtectedRoute>
+                          <Routes>
+                            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/profile" element={<Profile />} />
+                            <Route path="/appointments" element={<Appointments />} />
+                            <Route path="/business">
+                              <Route path="profile" element={<BusinessProfile />} />
+                              <Route path="settings" element={<BusinessSettings />} />
+                            </Route>
+                            <Route path="/admin">
+                              <Route path="dashboard" element={<AdminDashboard />} />
+                              <Route path="settings" element={<AdminSettings />} />
+                            </Route>
+                          </Routes>
+                        </ProtectedRoute>
+                      }
+                    />
+                  </Route>
 
-              {/* Business routes */}
-              <Route
-                path="/business-profile"
-                element={
-                  <ProtectedRoute requiredRole={['business', 'admin']}>
-                    <BusinessProfile />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/business-settings"
-                element={
-                  <ProtectedRoute requiredRole={['business', 'admin']}>
-                    <BusinessSettings />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Admin routes */}
-              <Route
-                path="/admin/dashboard"
-                element={
-                  <ProtectedRoute requiredRole={['admin']}>
-                    <AdminDashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin/settings"
-                element={
-                  <ProtectedRoute requiredRole={['admin']}>
-                    <AdminSettings />
-                  </ProtectedRoute>
-                }
-              />
-            </Route>
-
-            {/* Catch all */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </ThemeProvider>
-  );
+                  {/* 404 route */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </Router>
+            <Toaster />
+          </AuthProvider>
+        </ThemeProvider>
+      </SWRConfig>
+    </ErrorBoundary>
+  )
 }
-
-export default App;

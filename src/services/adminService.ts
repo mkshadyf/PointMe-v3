@@ -1,24 +1,6 @@
-import { supabase } from '../lib/supabase';
-import { Business } from '../types/business';
-
-export interface AdminStats {
-  totalUsers: number;
-  totalBusinesses: number;
-  totalAppointments: number;
-  totalRevenue: number;
-  activeUsers: number;
-  pendingApprovals: number;
-}
-
-export interface ContentReport {
-  id: string;
-  type: 'review' | 'business' | 'user';
-  targetId: string;
-  reason: string;
-  status: 'pending' | 'resolved' | 'dismissed';
-  reportedBy: string;
-  createdAt: Date;
-}
+import { supabase } from '../lib/supabase'
+import { Business } from '../types/business'
+import { AdminStats, Report } from '../types/admin'
 
 export interface Category {
   id: string;
@@ -96,21 +78,22 @@ const adminService = {
   },
 
   async deleteCategory(id: string): Promise<void> {
-    const { error } = await supabase.from('categories').delete().eq('id', id);
+    const { error } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', id);
     if (error) throw error;
   },
 
   async updateCategoriesOrder(categories: { id: string; order: number }[]): Promise<void> {
-    const { error } = await supabase.rpc('update_categories_order', {
-      category_orders: categories,
-    });
+    const { error } = await supabase.rpc('update_categories_order', { categories });
     if (error) throw error;
   },
 
   // Content Moderation
-  async getContentReports(): Promise<ContentReport[]> {
+  async getContentReports(): Promise<Report[]> {
     const { data, error } = await supabase
-      .from('content_reports')
+      .from('reports')
       .select('*')
       .order('createdAt', { ascending: false });
     if (error) throw error;
@@ -119,16 +102,16 @@ const adminService = {
 
   async resolveReport(reportId: string): Promise<void> {
     const { error } = await supabase
-      .from('content_reports')
-      .update({ status: 'resolved' })
+      .from('reports')
+      .update({ status: 'resolved', updatedAt: new Date().toISOString() })
       .eq('id', reportId);
     if (error) throw error;
   },
 
   async dismissReport(reportId: string): Promise<void> {
     const { error } = await supabase
-      .from('content_reports')
-      .update({ status: 'dismissed' })
+      .from('reports')
+      .update({ status: 'dismissed', updatedAt: new Date().toISOString() })
       .eq('id', reportId);
     if (error) throw error;
   },
@@ -148,7 +131,7 @@ const adminService = {
       .update({ status: 'active' })
       .eq('id', userId);
     if (error) throw error;
-  },
-};
+  }
+}
 
-export default adminService;
+export { adminService }

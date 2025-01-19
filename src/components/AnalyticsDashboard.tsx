@@ -1,24 +1,28 @@
 import React from 'react'
 import { Typography, Box, Grid, Paper } from '@mui/material'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { trpc } from '../utils/trpc'
+import useSWR from 'swr'
+import { createTrpcFetcher, createTrpcKey } from '@/utils/swr-helpers'
 
 interface AnalyticsDashboardProps {
   businessId: string
 }
 
-const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ businessId }) => {
-  const analyticsQuery = trpc.business.getAnalytics.useQuery(businessId)
+export default function AnalyticsDashboard({ businessId }: AnalyticsDashboardProps) {
+  const { data: analytics, error: analyticsError } = useSWR(
+    createTrpcKey(['business', 'getAnalytics'], businessId),
+    createTrpcFetcher(['business', 'getAnalytics'], businessId)
+  )
 
-  if (analyticsQuery.isLoading) {
+  if (!analytics) {
     return <Typography>Loading analytics...</Typography>
   }
 
-  if (analyticsQuery.isError) {
+  if (analyticsError) {
     return <Typography color="error">Error loading analytics</Typography>
   }
 
-  const { totalBookings, totalRevenue, servicePerformance } = analyticsQuery.data
+  const { totalBookings, totalRevenue, servicePerformance } = analytics.data
 
   return (
     <Box>
@@ -61,6 +65,3 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ businessId }) =
     </Box>
   )
 }
-
-export default AnalyticsDashboard
-

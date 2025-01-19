@@ -20,23 +20,23 @@ import {
   Favorite as FavoriteIcon,
   FavoriteBorder as FavoriteBorderIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import businessService from '../../services/businessService'
-import favoriteService from '../../services/favoriteService'
+import useSWR, { useSWRConfig } from 'swr'
+import { businessService } from '@/services/businessService'
+import favoriteService from '@/services/favoriteService'
 import { useNavigate } from 'react-router-dom'
 import { useDebounce } from '@/hooks/useDebounce'
-import { useAuthStore } from '../../stores/authStore'
+import { useAuthStore } from '@/stores/authStore'
 
 const Home: React.FC = () => {
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
   const [searchTerm, setSearchTerm] = React.useState('')
   const [location, setLocation] = React.useState('')
   const debouncedSearch = useDebounce(searchTerm, 300)
   const debouncedLocation = useDebounce(location, 300)
 
-  const { data: businesses, isLoading } = useQuery(
+  const { data: businesses, error, isLoading } = useSWR(
     ['businesses', debouncedSearch, debouncedLocation],
     () =>
       businessService.searchBusinesses({
@@ -48,11 +48,11 @@ const Home: React.FC = () => {
     }
   )
 
-  const { data: categories } = useQuery('categories', () =>
+  const { data: categories } = useSWR(['categories'], () =>
     businessService.getCategories()
   )
 
-  const { data: favorites } = useQuery(
+  const { data: favorites } = useSWR(
     ['favorites', user?.id],
     () => favoriteService.getFavorites(user!.id),
     {
@@ -60,24 +60,14 @@ const Home: React.FC = () => {
     }
   )
 
-  const toggleFavoriteMutation = useMutation(
-    (businessId: string) =>
-      favorites?.includes(businessId)
-        ? favoriteService.removeFavorite(user!.id, businessId)
-        : favoriteService.addFavorite(user!.id, businessId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['favorites', user?.id])
-      },
+  const handleToggleFavorite = async (businessId: string) => {
+    try {
+      await favoriteService.toggleFavorite(businessId)
+      mutate('businesses')
+      mutate(['favorites', user?.id])
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error)
     }
-  )
-
-  const handleFavoriteClick = (businessId: string) => {
-    if (!user) {
-      navigate('/login')
-      return
-    }
-    toggleFavoriteMutation.mutate(businessId)
   }
 
   const handleBusinessClick = (businessId: string) => {
@@ -134,7 +124,7 @@ const Home: React.FC = () => {
           }}
           onClick={(e) => {
             e.stopPropagation()
-            handleFavoriteClick(business.id)
+            handleToggleFavorite(business.id)
           }}
         >
           {isFavorite ? (

@@ -14,6 +14,7 @@ import {
   useTheme,
   useMediaQuery,
   Chip,
+  CircularProgress,
 } from '@mui/material'
 import {
   Menu as MenuIcon,
@@ -28,13 +29,13 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import NotificationCenter from '../components/notifications/NotificationCenter'
 import UserMenu from '../components/common/UserMenu'
 import ErrorBoundary from '../components/common/ErrorBoundary'
-import { useQuery } from 'react-query'
-import businessService from '../services/businessService'
+import useSWR from 'swr'
+import { businessService } from '../services/businessService'
 import { useAuthStore } from '../stores/authStore'
 
 const DRAWER_WIDTH = 240
 
-const BusinessLayout: React.FC = () => {
+const BusinessLayout = ({ children }) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const [open, setOpen] = React.useState(!isMobile)
@@ -42,13 +43,26 @@ const BusinessLayout: React.FC = () => {
   const location = useLocation()
   const { user } = useAuthStore()
 
-  const { data: businessProfile } = useQuery(
-    ['businessProfile', user?.id],
-    () => businessService.getBusinessProfile(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: business, error } = useSWR(
+    user ? ['business', user.id] : null,
+    () => businessService.getBusinessByUserId(user!.id)
   )
+
+  if (error) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <Typography color="error">Error loading business data</Typography>
+      </Box>
+    )
+  }
+
+  if (!business) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    )
+  }
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/business' },
@@ -103,16 +117,16 @@ const BusinessLayout: React.FC = () => {
           </IconButton>
           <Box sx={{ flexGrow: 1 }}>
             <Typography variant="h6" noWrap component="div">
-              {businessProfile?.name || 'Business Dashboard'}
+              {business?.name || 'Business Dashboard'}
             </Typography>
-            {businessProfile?.status && (
+            {business?.status && (
               <Chip
-                label={businessProfile.status}
+                label={business.status}
                 size="small"
                 color={
-                  businessProfile.status === 'active'
+                  business.status === 'active'
                     ? 'success'
-                    : businessProfile.status === 'pending'
+                    : business.status === 'pending'
                     ? 'warning'
                     : 'error'
                 }
@@ -182,7 +196,7 @@ const BusinessLayout: React.FC = () => {
         <Toolbar />
         <Container maxWidth="lg">
           <ErrorBoundary>
-            <Outlet />
+            {children}
           </ErrorBoundary>
         </Container>
       </Box>

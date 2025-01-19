@@ -16,148 +16,110 @@ import {
   Skeleton,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { format, parseISO } from 'date-fns'
-import type { Appointment } from '../../types/appointment'
-import { useMutation, useQueryClient } from 'react-query'
-import appointmentService from '../../services/appointmentService'
+import { format } from 'date-fns'
+import { Appointment } from '../../types/appointment'
+import { AppointmentStatus } from '../../types/enums'
+import useSWR from 'swr'
+import { appointmentService } from '../../services/appointmentService'
 import AppointmentDetailsDialog from './AppointmentDetailsDialog'
-import EditAppointmentDialog from './EditAppointmentDialog'
+import { showNotification } from '../../utils/notification'
 
 interface AppointmentListProps {
-  appointments: Appointment[]
-  isLoading: boolean
+  businessId: string
+  appointments?: Appointment[]
+  isLoading?: boolean
 }
 
-const getStatusColor = (status: string) => {
-  switch (status.toLowerCase()) {
-    case 'confirmed':
+const getStatusColor = (status: AppointmentStatus): 'success' | 'warning' | 'error' | 'default' => {
+  switch (status) {
+    case AppointmentStatus.CONFIRMED:
       return 'success'
-    case 'pending':
+    case AppointmentStatus.PENDING:
       return 'warning'
-    case 'cancelled':
+    case AppointmentStatus.CANCELLED:
       return 'error'
     default:
       return 'default'
   }
 }
 
-const AppointmentList: React.FC<AppointmentListProps> = ({
-  appointments,
-  isLoading,
-}) => {
-  const queryClient = useQueryClient()
+const AppointmentList: React.FC<AppointmentListProps> = ({ businessId, appointments = [], isLoading = false }) => {
+  const { data: fetchedAppointments, mutate } = useSWR<Appointment[]>(
+    ['appointments', businessId],
+    () => appointmentService.getAppointments({ businessId })
+  )
+
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const [selectedAppointment, setSelectedAppointment] = React.useState<Appointment | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = React.useState(false)
-  const [isEditOpen, setIsEditOpen] = React.useState(false)
 
-  const updateStatusMutation = useMutation(
-    ({ id, status }: { id: string; status: string }) =>
-      appointmentService.updateAppointmentStatus(id, status),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('appointments')
-      },
+  const handleUpdateStatus = async (appointmentId: string, status: AppointmentStatus) => {
+    try {
+      await appointmentService.updateAppointment(appointmentId, { status })
+      mutate()
+      showNotification('Appointment status updated successfully', { variant: 'success' })
+    } catch (error) {
+      console.error('Failed to update appointment status:', error)
+      showNotification('Failed to update appointment status', { variant: 'error' })
     }
-  )
-
-  const handleMenuClick = (
-    event: React.MouseEvent<HTMLElement>,
-    appointment: Appointment
-  ) => {
-    setAnchorEl(event.currentTarget)
-    setSelectedAppointment(appointment)
   }
 
-  const handleMenuClose = () => {
-    setAnchorEl(null)
-  }
-
-  const handleStatusChange = async (status: string) => {
-    if (selectedAppointment) {
-      try {
-        await updateStatusMutation.mutateAsync({
-          id: selectedAppointment.id,
-          status,
-        })
-        // Show success notification
-      } catch (error) {
-        console.error('Failed to update appointment status:', error)
-        // Show error notification
-      }
-    }
-    handleMenuClose()
-  }
-
-  const handleViewDetails = () => {
-    setIsDetailsOpen(true)
-    handleMenuClose()
-  }
-
-  const handleEdit = () => {
-    setIsEditOpen(true)
-    handleMenuClose()
-  }
+  const displayedAppointments = fetchedAppointments || appointments
 
   if (isLoading) {
     return (
-      <Box>
-        {[...Array(5)].map((_, index) => (
-          <Skeleton
-            key={index}
-            variant="rectangular"
-            height={60}
-            sx={{ mb: 1 }}
-          />
-        ))}
-      </Box>
-    )
-  }
-
-  if (!appointments.length) {
-    return (
-      <Box textAlign="center" py={4}>
-        <Typography variant="body1" color="text.secondary">
-          No appointments found for the selected date.
-        </Typography>
-      </Box>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableBody>
+            {[...Array(5)].map((_, index) => (
+              <TableRow key={index}>
+                <TableCell><Skeleton variant="text" /></TableCell>
+                <TableCell><Skeleton variant="text" /></TableCell>
+                <TableCell><Skeleton variant="text" /></TableCell>
+                <TableCell><Skeleton variant="text" /></TableCell>
+                <TableCell><Skeleton variant="text" /></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     )
   }
 
   return (
-    <>
-      <TableContainer component={Paper} variant="outlined">
+    <Box>
+      <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell>Date</TableCell>
               <TableCell>Time</TableCell>
               <TableCell>Customer</TableCell>
               <TableCell>Service</TableCell>
-              <TableCell>Duration</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {appointments.map((appointment) => (
+            {displayedAppointments.map((appointment) => (
               <TableRow key={appointment.id}>
-                <TableCell>
-                  {format(parseISO(appointment.startTime), 'h:mm a')}
-                </TableCell>
+                <TableCell>{format(new Date(appointment.date), 'MMM dd, yyyy')}</TableCell>
+                <TableCell>{appointment.startTime}</TableCell>
                 <TableCell>{appointment.customerName}</TableCell>
-                <TableCell>{appointment.serviceName}</TableCell>
-                <TableCell>{appointment.duration} min</TableCell>
+                <TableCell>{appointment.service?.name}</TableCell>
                 <TableCell>
                   <Chip
                     label={appointment.status}
-                    color={getStatusColor(appointment.status) as any}
+                    color={getStatusColor(appointment.status)}
                     size="small"
                   />
                 </TableCell>
-                <TableCell align="right">
+                <TableCell>
                   <IconButton
-                    onClick={(e) => handleMenuClick(e, appointment)}
-                    size="small"
+                    onClick={(event) => {
+                      setAnchorEl(event.currentTarget)
+                      setSelectedAppointment(appointment)
+                    }}
                   >
                     <MoreVertIcon />
                   </IconButton>
@@ -171,33 +133,45 @@ const AppointmentList: React.FC<AppointmentListProps> = ({
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
+        onClose={() => setAnchorEl(null)}
       >
-        <MenuItem onClick={handleViewDetails}>View Details</MenuItem>
-        <MenuItem onClick={handleEdit}>Edit</MenuItem>
-        <MenuItem onClick={() => handleStatusChange('confirmed')}>
-          Mark as Confirmed
+        <MenuItem onClick={() => {
+          setIsDetailsOpen(true)
+          setAnchorEl(null)
+        }}>
+          View Details
         </MenuItem>
-        <MenuItem onClick={() => handleStatusChange('cancelled')}>
-          Cancel Appointment
-        </MenuItem>
+        {selectedAppointment?.status === AppointmentStatus.PENDING && (
+          <MenuItem onClick={() => {
+            if (selectedAppointment) {
+              handleUpdateStatus(selectedAppointment.id, AppointmentStatus.CONFIRMED)
+            }
+            setAnchorEl(null)
+          }}>
+            Confirm
+          </MenuItem>
+        )}
+        {selectedAppointment?.status !== AppointmentStatus.CANCELLED && (
+          <MenuItem onClick={() => {
+            if (selectedAppointment) {
+              handleUpdateStatus(selectedAppointment.id, AppointmentStatus.CANCELLED)
+            }
+            setAnchorEl(null)
+          }}>
+            Cancel
+          </MenuItem>
+        )}
       </Menu>
 
       {selectedAppointment && (
-        <>
-          <AppointmentDetailsDialog
-            appointment={selectedAppointment}
-            open={isDetailsOpen}
-            onClose={() => setIsDetailsOpen(false)}
-          />
-          <EditAppointmentDialog
-            appointment={selectedAppointment}
-            open={isEditOpen}
-            onClose={() => setIsEditOpen(false)}
-          />
-        </>
+        <AppointmentDetailsDialog
+          appointment={selectedAppointment}
+          open={isDetailsOpen}
+          onClose={() => setIsDetailsOpen(false)}
+          businessId={businessId}
+        />
       )}
-    </>
+    </Box>
   )
 }
 

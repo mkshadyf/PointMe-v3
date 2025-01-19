@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Card,
   CardContent,
@@ -17,9 +17,9 @@ import {
   Alert,
   AlertTitle,
 } from '@mui/material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import businessService from '../../../services/businessService'
-import { NotificationSettings as NotificationSettingsType } from '../../../types/business'
+import useSWR, { useSWRConfig, mutate } from 'swr'
+import { businessService } from '@/services/businessService'
+import { NotificationSettings as NotificationSettingsType } from '@/types/business'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -47,13 +47,12 @@ const notificationSettingsSchema = z.object({
 type NotificationSettingsFormData = z.infer<typeof notificationSettingsSchema>
 
 const NotificationSettings: React.FC<NotificationSettingsProps> = ({ businessId }) => {
-  const queryClient = useQueryClient()
   const [isAddingEmail, setIsAddingEmail] = React.useState(false)
   const [isAddingPhone, setIsAddingPhone] = React.useState(false)
   const [newEmail, setNewEmail] = React.useState('')
   const [newPhone, setNewPhone] = React.useState('')
 
-  const { data: settings, isLoading } = useQuery(
+  const { data: notificationSettings, error } = useSWR(
     ['notificationSettings', businessId],
     () => businessService.getNotificationSettings(businessId)
   )
@@ -67,16 +66,16 @@ const NotificationSettings: React.FC<NotificationSettingsProps> = ({ businessId 
   } = useForm<NotificationSettingsFormData>({
     resolver: zodResolver(notificationSettingsSchema),
     defaultValues: {
-      emailNotifications: settings?.emailNotifications || false,
-      smsNotifications: settings?.smsNotifications || false,
-      pushNotifications: settings?.pushNotifications || false,
-      reminderTime: settings?.reminderTime || 24,
-      notifyOnNewBooking: settings?.notifyOnNewBooking || true,
-      notifyOnCancellation: settings?.notifyOnCancellation || true,
-      notifyOnReschedule: settings?.notifyOnReschedule || true,
-      notifyOnReview: settings?.notifyOnReview || true,
-      emailRecipients: settings?.emailRecipients || [],
-      phoneRecipients: settings?.phoneRecipients || [],
+      emailNotifications: notificationSettings?.emailNotifications || false,
+      smsNotifications: notificationSettings?.smsNotifications || false,
+      pushNotifications: notificationSettings?.pushNotifications || false,
+      reminderTime: notificationSettings?.reminderTime || 24,
+      notifyOnNewBooking: notificationSettings?.notifyOnNewBooking || true,
+      notifyOnCancellation: notificationSettings?.notifyOnCancellation || true,
+      notifyOnReschedule: notificationSettings?.notifyOnReschedule || true,
+      notifyOnReview: notificationSettings?.notifyOnReview || true,
+      emailRecipients: notificationSettings?.emailRecipients || [],
+      phoneRecipients: notificationSettings?.phoneRecipients || [],
     },
   })
 
@@ -85,22 +84,17 @@ const NotificationSettings: React.FC<NotificationSettingsProps> = ({ businessId 
   const emailRecipients = watch('emailRecipients')
   const phoneRecipients = watch('phoneRecipients')
 
-  const updateNotificationSettingsMutation = useMutation(
-    (settings: Business['notificationSettings']) =>
-      businessService.updateNotificationSettings(businessId, settings),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['notificationSettings', businessId])
-      },
-    }
-  )
-
-  const onSubmit = async (data: NotificationSettingsFormData) => {
+  const handleUpdateSettings = async (data: NotificationSettingsFormData) => {
     try {
-      await updateNotificationSettingsMutation.mutateAsync(data)
+      await businessService.updateNotificationSettings(businessId, data)
+      await mutate(['notificationSettings', businessId])
     } catch (error) {
       console.error('Failed to update notification settings:', error)
     }
+  }
+
+  const onSubmit = async (data: NotificationSettingsFormData) => {
+    await handleUpdateSettings(data)
   }
 
   const handleAddEmail = () => {
@@ -133,7 +127,7 @@ const NotificationSettings: React.FC<NotificationSettingsProps> = ({ businessId 
     )
   }
 
-  if (isLoading) {
+  if (!notificationSettings) {
     return null // Or show loading spinner
   }
 

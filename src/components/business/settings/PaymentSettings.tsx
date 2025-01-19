@@ -17,9 +17,9 @@ import {
   AlertTitle,
   Divider,
 } from '@mui/material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import businessService from '../../../services/businessService'
-import { PaymentSettings as PaymentSettingsType } from '../../../types/business'
+import useSWR, { useSWRConfig, mutate } from 'swr'
+import { businessService } from '@/services/businessService'
+import { PaymentSettings as PaymentSettingsType } from '@/types/business'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -69,9 +69,7 @@ const CANCELLATION_POLICIES = [
 ]
 
 const PaymentSettings: React.FC<PaymentSettingsProps> = ({ businessId }) => {
-  const queryClient = useQueryClient()
-
-  const { data: settings, isLoading } = useQuery(
+  const { data: paymentSettings, error } = useSWR(
     ['paymentSettings', businessId],
     () => businessService.getPaymentSettings(businessId)
   )
@@ -84,13 +82,13 @@ const PaymentSettings: React.FC<PaymentSettingsProps> = ({ businessId }) => {
   } = useForm<PaymentSettingsFormData>({
     resolver: zodResolver(paymentSettingsSchema),
     defaultValues: {
-      acceptOnlinePayments: settings?.acceptOnlinePayments || false,
-      depositRequired: settings?.depositRequired || false,
-      depositPercentage: settings?.depositPercentage || 0,
-      cancellationPolicy: settings?.cancellationPolicy || 'none',
-      cancellationFee: settings?.cancellationFee || 0,
-      currency: settings?.currency || 'USD',
-      paymentMethods: settings?.paymentMethods || ['cash'],
+      acceptOnlinePayments: paymentSettings?.acceptOnlinePayments || false,
+      depositRequired: paymentSettings?.depositRequired || false,
+      depositPercentage: paymentSettings?.depositPercentage || 0,
+      cancellationPolicy: paymentSettings?.cancellationPolicy || 'none',
+      cancellationFee: paymentSettings?.cancellationFee || 0,
+      currency: paymentSettings?.currency || 'USD',
+      paymentMethods: paymentSettings?.paymentMethods || ['cash'],
     },
   })
 
@@ -98,25 +96,20 @@ const PaymentSettings: React.FC<PaymentSettingsProps> = ({ businessId }) => {
   const depositRequired = watch('depositRequired')
   const cancellationPolicy = watch('cancellationPolicy')
 
-  const updatePaymentSettingsMutation = useMutation(
-    (settings: Business['paymentSettings']) =>
-      businessService.updatePaymentSettings(businessId, settings),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['paymentSettings', businessId])
-      },
-    }
-  )
-
-  const onSubmit = async (data: PaymentSettingsFormData) => {
+  const handleUpdateSettings = async (data: PaymentSettingsFormData) => {
     try {
-      await updatePaymentSettingsMutation.mutateAsync(data)
+      await businessService.updatePaymentSettings(businessId, data)
+      await mutate(['paymentSettings', businessId])
     } catch (error) {
       console.error('Failed to update payment settings:', error)
     }
   }
 
-  if (isLoading) {
+  const onSubmit = async (data: PaymentSettingsFormData) => {
+    await handleUpdateSettings(data)
+  }
+
+  if (!paymentSettings) {
     return null // Or show loading spinner
   }
 

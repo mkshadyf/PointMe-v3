@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Box,
   Container,
@@ -41,7 +41,7 @@ import {
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
+import useSWR from 'swr'
 import staffService from '../../services/staffService'
 import serviceService from '../../services/serviceService'
 import { useAuthStore } from '../../stores/authStore'
@@ -105,25 +105,18 @@ const defaultWorkingHours = {
 const StaffManagement: React.FC = () => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false)
-  const [selectedStaff, setSelectedStaff] = React.useState<any>(null)
-  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
-  const { data: staff } = useQuery(
+  const { data: staff, error: staffError } = useSWR(
     ['staff', user?.id],
-    () => staffService.getStaffMembers(user!.id),
-    {
-      enabled: !!user,
-    }
+    () => staffService.getStaffMembers(user!.id)
   )
 
-  const { data: services } = useQuery(
+  const { data: services, error: servicesError } = useSWR(
     ['services', user?.id],
-    () => serviceService.getServices(user!.id),
-    {
-      enabled: !!user,
-    }
+    () => serviceService.getServices(user!.id)
   )
 
   const {
@@ -159,47 +152,41 @@ const StaffManagement: React.FC = () => {
     }
   }, [selectedStaff, reset])
 
-  const createMutation = useMutation(
-    (data: StaffFormData) => staffService.createStaffMember(user!.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['staff', user?.id])
-        showNotification('Staff member created successfully', 'success')
-        setIsDialogOpen(false)
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
+  const handleCreateStaff = async (data: StaffFormData) => {
+    try {
+      await staffService.createStaffMember(user!.id, data)
+      await mutate(['staff', user?.id])
+      setIsDialogOpen(false)
+      showNotification('Staff member created successfully', 'success')
+    } catch (error) {
+      console.error('Failed to create staff member:', error)
+      showNotification('Failed to create staff member', 'error')
     }
-  )
+  }
 
-  const updateMutation = useMutation(
-    (data: { id: string; input: StaffFormData }) =>
-      staffService.updateStaffMember(data.id, data.input),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['staff', user?.id])
-        showNotification('Staff member updated successfully', 'success')
-        setIsDialogOpen(false)
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
+  const handleUpdateStaff = async (staffId: string, data: StaffFormData) => {
+    try {
+      await staffService.updateStaffMember(staffId, data)
+      await mutate(['staff', user?.id])
+      setSelectedStaff(null)
+      showNotification('Staff member updated successfully', 'success')
+    } catch (error) {
+      console.error('Failed to update staff member:', error)
+      showNotification('Failed to update staff member', 'error')
     }
-  )
+  }
 
-  const deleteMutation = useMutation(
-    (id: string) => staffService.deleteStaffMember(id),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['staff', user?.id])
-        showNotification('Staff member deleted successfully', 'success')
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
+  const handleDeleteStaff = async (staffId: string) => {
+    try {
+      await staffService.deleteStaffMember(staffId)
+      await mutate(['staff', user?.id])
+      setDeleteDialogOpen(false)
+      showNotification('Staff member deleted successfully', 'success')
+    } catch (error) {
+      console.error('Failed to delete staff member:', error)
+      showNotification('Failed to delete staff member', 'error')
     }
-  )
+  }
 
   const handleOpenDialog = (staff?: any) => {
     setSelectedStaff(staff || null)
@@ -219,15 +206,15 @@ const StaffManagement: React.FC = () => {
 
   const handleConfirmDelete = () => {
     if (selectedStaff) {
-      deleteMutation.mutate(selectedStaff.id)
+      handleDeleteStaff(selectedStaff.id)
     }
   }
 
   const onSubmit = (data: StaffFormData) => {
     if (selectedStaff) {
-      updateMutation.mutate({ id: selectedStaff.id, input: data })
+      handleUpdateStaff(selectedStaff.id, data)
     } else {
-      createMutation.mutate(data)
+      handleCreateStaff(data)
     }
   }
 
@@ -253,10 +240,7 @@ const StaffManagement: React.FC = () => {
               <Switch
                 checked={staff.isActive}
                 onChange={(e) =>
-                  updateMutation.mutate({
-                    id: staff.id,
-                    input: { ...staff, isActive: e.target.checked },
-                  })
+                  handleUpdateStaff(staff.id, { ...staff, isActive: e.target.checked })
                 }
               />
             }
@@ -588,9 +572,6 @@ const StaffManagement: React.FC = () => {
               <LoadingButton
                 type="submit"
                 variant="contained"
-                loading={
-                  createMutation.isLoading || updateMutation.isLoading
-                }
               >
                 {selectedStaff ? 'Update' : 'Create'}
               </LoadingButton>
@@ -615,7 +596,6 @@ const StaffManagement: React.FC = () => {
               onClick={handleConfirmDelete}
               color="error"
               variant="contained"
-              loading={deleteMutation.isLoading}
             >
               Delete
             </LoadingButton>

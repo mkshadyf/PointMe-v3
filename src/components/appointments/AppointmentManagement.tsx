@@ -16,8 +16,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import AddIcon from '@mui/icons-material/Add';
-import { useQuery } from 'react-query'
-import appointmentService from '../../services/appointmentService'
+import useSWR from 'swr'
+import { appointmentService } from '@/services/appointmentService'
 import type { Appointment } from '../../types/appointment'
 import { useAuthStore } from '../../stores/authStore'
 import AppointmentCalendar from './AppointmentCalendar'
@@ -55,10 +55,9 @@ const AppointmentManagement: React.FC = () => {
     query: searchQuery,
   }
 
-  const { data: appointments, isLoading } = useQuery(['appointments', filters], () =>
-    appointmentService.getAppointments({
-      ...filters,
-    })
+  const { data: appointments, error, isLoading } = useSWR(
+    ['appointments', selectedDate],
+    () => appointmentService.getAppointments({ startDate: selectedDate })
   )
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -156,7 +155,8 @@ const AppointmentManagement: React.FC = () => {
               />
             </TabPanel>
             <TabPanel value={tabValue} index={1}>
-              <AppointmentList
+              <AppointmentList 
+                businessId={business.id}
                 appointments={appointments || []}
                 isLoading={isLoading}
               />
@@ -166,6 +166,8 @@ const AppointmentManagement: React.FC = () => {
       </Grid>
 
       <CreateAppointmentDialog
+        businessId={business.id}
+        staffId={business.id}
         open={isCreateDialogOpen}
         onClose={() => setIsCreateDialogOpen(false)}
         selectedDate={selectedDate}

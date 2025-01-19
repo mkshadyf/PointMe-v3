@@ -7,13 +7,15 @@ import {
   Button,
   TextField,
   Box,
+  Switch,
+  FormControlLabel,
 } from '@mui/material'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQueryClient } from 'react-query'
+import { useSWRConfig } from 'swr'
 import categoryService from '../../services/categoryService'
-import { BusinessCategory, UpdateBusinessCategoryInput } from '../../types/category'
+import { BusinessCategory } from '../../types/category'
 
 const businessCategorySchema = z.object({
   name: z.string()
@@ -21,73 +23,58 @@ const businessCategorySchema = z.object({
     .max(50, 'Name must be less than 50 characters'),
   description: z.string()
     .min(10, 'Description must be at least 10 characters')
-    .max(200, 'Description must be less than 200 characters'),
+    .max(500, 'Description must be less than 500 characters'),
+  isActive: z.boolean(),
 })
+
+type BusinessCategoryFormData = z.infer<typeof businessCategorySchema>
 
 interface EditBusinessCategoryDialogProps {
   open: boolean
-  category: BusinessCategory
   onClose: () => void
+  category: BusinessCategory
 }
 
 const EditBusinessCategoryDialog: React.FC<EditBusinessCategoryDialogProps> = ({
   open,
-  category,
   onClose,
+  category,
 }) => {
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
 
   const {
     control,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<UpdateBusinessCategoryInput>({
+    formState: { errors },
+  } = useForm<BusinessCategoryFormData>({
     resolver: zodResolver(businessCategorySchema),
     defaultValues: {
       name: category.name,
       description: category.description,
+      isActive: category.isActive,
     },
   })
-
-  React.useEffect(() => {
-    if (open) {
-      reset({
-        name: category.name,
-        description: category.description,
-      })
-    }
-  }, [open, category, reset])
-
-  const updateMutation = useMutation(
-    (data: UpdateBusinessCategoryInput) => 
-      categoryService.updateBusinessCategory(category.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('businessCategories')
-        handleClose()
-      },
-    }
-  )
-
-  const onSubmit = async (data: UpdateBusinessCategoryInput) => {
-    try {
-      await updateMutation.mutateAsync(data)
-    } catch (error) {
-      console.error('Failed to update business category:', error)
-      // Handle error (show notification, etc.)
-    }
-  }
 
   const handleClose = () => {
     reset()
     onClose()
   }
 
+  const handleUpdateCategory = async (data: BusinessCategoryFormData) => {
+    try {
+      await categoryService.updateBusinessCategory(category.id, data)
+      mutate('businessCategories')
+      handleClose()
+    } catch (error) {
+      console.error('Failed to update business category:', error)
+    }
+  }
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit Business Category</DialogTitle>
-      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <Box component="form" onSubmit={handleSubmit(handleUpdateCategory)} noValidate>
         <DialogContent>
           <Controller
             name="name"
@@ -104,7 +91,6 @@ const EditBusinessCategoryDialog: React.FC<EditBusinessCategoryDialogProps> = ({
               />
             )}
           />
-
           <Controller
             name="description"
             control={control}
@@ -122,16 +108,27 @@ const EditBusinessCategoryDialog: React.FC<EditBusinessCategoryDialogProps> = ({
               />
             )}
           />
+          <Controller
+            name="isActive"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                  />
+                }
+                label="Active"
+              />
+            )}
+          />
         </DialogContent>
 
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={isSubmitting || !isDirty}
-          >
-            Save Changes
+          <Button type="submit" variant="contained">
+            Update Category
           </Button>
         </DialogActions>
       </Box>

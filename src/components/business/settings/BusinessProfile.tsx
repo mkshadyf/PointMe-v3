@@ -1,270 +1,305 @@
-import React from 'react'
-import {
-  Grid,
-  TextField,
-  Button,
-  Box,
-  Avatar,
-  Typography,
-  IconButton,
-  Card,
-  CardContent,
-  Divider,
-} from '@mui/material'
-import { useForm, Controller } from 'react-hook-form'
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQueryClient } from 'react-query'
-import businessService from '../../../services/businessService'
-import { Business } from '../../../types/business'
-import PhotoCamera from '@mui/icons-material/PhotoCamera'
-
-const businessProfileSchema = z.object({
-  name: z.string()
-    .min(2, 'Business name must be at least 2 characters')
-    .max(100, 'Business name must be less than 100 characters'),
-  description: z.string()
-    .min(10, 'Description must be at least 10 characters')
-    .max(500, 'Description must be less than 500 characters'),
-  email: z.string()
-    .email('Invalid email address'),
-  phone: z.string()
-    .min(10, 'Phone number must be at least 10 characters')
-    .max(15, 'Phone number must be less than 15 characters'),
-  address: z.string()
-    .min(5, 'Address must be at least 5 characters')
-    .max(200, 'Address must be less than 200 characters'),
-  website: z.string()
-    .url('Invalid website URL')
-    .optional()
-    .or(z.literal('')),
-})
-
-type BusinessProfileData = z.infer<typeof businessProfileSchema>
+import useSWR, { mutate } from 'swr'
+import { LoadScript, GoogleMap, Marker } from '@react-google-maps/api'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { useToast } from '@/hooks/useToast'
+import { businessService } from '@/services/businessService'
+import { type Business, type UpdateBusinessInput } from '@/types/business'
+import { useAuth } from '@/hooks/useAuth'
 
 interface BusinessProfileProps {
-  business: Business
+  business: Business;
 }
 
-const BusinessProfile: React.FC<BusinessProfileProps> = ({ business }) => {
-  const queryClient = useQueryClient()
-  const [logoFile, setLogoFile] = React.useState<File | null>(null)
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
+const businessSchema = z.object({
+  name: z.string().min(1, 'Business name is required'),
+  description: z.string().min(10, 'Description must be at least 10 characters'),
+  address: z.string().min(1, 'Address is required'),
+  phone: z.string().min(1, 'Phone number is required'),
+  email: z.string().email('Invalid email address'),
+  website: z.string().url('Invalid website URL').optional(),
+  location: z.object({
+    lat: z.number(),
+    lng: z.number(),
+  }),
+  socialMedia: z.object({
+    facebook: z.string().url('Invalid Facebook URL').optional(),
+    instagram: z.string().url('Invalid Instagram URL').optional(),
+    twitter: z.string().url('Invalid Twitter URL').optional(),
+  }).optional(),
+})
 
-  const {
-    control,
-    handleSubmit,
-    formState: { errors, isDirty, isSubmitting },
-  } = useForm<BusinessProfileData>({
-    resolver: zodResolver(businessProfileSchema),
+type BusinessFormData = z.infer<typeof businessSchema>
+
+const defaultCenter = {
+  lat: 40.7128,
+  lng: -74.0060,
+}
+
+export default function BusinessProfile({ business }: BusinessProfileProps) {
+  const { toast } = useToast()
+  const { user } = useAuth()
+  const [selectedLocation, setSelectedLocation] = useState(business?.location || defaultCenter)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+
+  const form = useForm<BusinessFormData>({
+    resolver: zodResolver(businessSchema),
     defaultValues: {
-      name: business.name,
-      description: business.description,
-      email: business.email || '',
-      phone: business.phone || '',
-      address: business.address || '',
-      website: business.website || '',
+      name: business?.name || '',
+      description: business?.description || '',
+      address: business?.address || '',
+      phone: business?.phone || '',
+      email: business?.email || '',
+      website: business?.website || '',
+      location: business?.location || defaultCenter,
+      socialMedia: business?.socialMedia || {
+        facebook: '',
+        instagram: '',
+        twitter: '',
+      },
     },
   })
 
-  const updateMutation = useMutation(
-    (data: BusinessProfileData) => businessService.updateBusiness(business.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['business', business.id])
-        // Show success notification
-      },
-    }
-  )
-
-  const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setLogoFile(event.target.files[0])
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && user?.id) {
+      setImageFile(file)
+      try {
+        const formData = new FormData()
+        formData.append('image', file)
+        await businessService.updateBusinessImage(user.id, { logoUrl: URL.createObjectURL(file) })
+        mutate(['business', user.id])
+        toast({
+          title: 'Image uploaded',
+          description: 'Business image has been updated successfully.',
+        })
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: 'Failed to upload image.',
+          variant: 'destructive',
+        })
+      }
     }
   }
 
-  const onSubmit = async (data: BusinessProfileData) => {
-    try {
-      await updateMutation.mutateAsync(data)
+  const handleMapClick = (e: google.maps.MapMouseEvent) => {
+    if (e.latLng) {
+      setSelectedLocation({
+        lat: e.latLng.lat(),
+        lng: e.latLng.lng(),
+      })
+    }
+  }
 
-      if (logoFile) {
-        // TODO: Implement logo upload
-        console.log('Upload logo:', logoFile)
+  const onSubmit = async (data: BusinessFormData) => {
+    if (!user?.id) return;
+
+    try {
+      const updateData: UpdateBusinessInput = {
+        ...data,
+        location: selectedLocation,
       }
+
+      await businessService.updateBusinessProfile(user.id, updateData)
+      mutate(['business', user.id])
+      toast({
+        title: 'Profile updated',
+        description: 'Your business profile has been updated successfully.',
+      })
     } catch (error) {
-      console.error('Failed to update business profile:', error)
-      // Show error notification
+      toast({
+        title: 'Error',
+        description: 'Failed to update profile.',
+        variant: 'destructive',
+      })
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Box
-                display="flex"
-                flexDirection="column"
-                alignItems="center"
-                textAlign="center"
-              >
-                <Avatar
-                  src={business.logoUrl}
-                  sx={{ width: 120, height: 120, mb: 2 }}
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Business Profile</CardTitle>
+          <CardDescription>
+            Update your business information
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Business Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <input
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  ref={fileInputRef}
-                  onChange={handleLogoChange}
+
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <Button
-                  variant="outlined"
-                  startIcon={<PhotoCamera />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Change Logo
-                </Button>
-                {logoFile && (
-                  <Typography variant="caption" sx={{ mt: 1 }}>
-                    Selected: {logoFile.name}
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
 
-        <Grid item xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Business Information
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <Controller
-                    name="name"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Business Name"
-                        error={!!errors.name}
-                        helperText={errors.name?.message}
-                      />
-                    )}
+                <div>
+                  <FormLabel>Business Image</FormLabel>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
                   />
-                </Grid>
+                </div>
 
-                <Grid item xs={12}>
-                  <Controller
-                    name="description"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        multiline
-                        rows={4}
-                        label="Business Description"
-                        error={!!errors.description}
-                        helperText={errors.description?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Contact Information
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <Controller
-                    name="email"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Email Address"
-                        error={!!errors.email}
-                        helperText={errors.email?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <Controller
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
                     name="phone"
-                    control={control}
                     render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Phone Number"
-                        error={!!errors.phone}
-                        helperText={errors.phone?.message}
-                      />
+                      <FormItem>
+                        <FormLabel>Phone</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
-                </Grid>
 
-                <Grid item xs={12}>
-                  <Controller
-                    name="address"
-                    control={control}
+                  <FormField
+                    control={form.control}
+                    name="email"
                     render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Business Address"
-                        error={!!errors.address}
-                        helperText={errors.address?.message}
-                      />
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="email" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
-                </Grid>
+                </div>
 
-                <Grid item xs={12}>
-                  <Controller
-                    name="website"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Website (Optional)"
-                        error={!!errors.website}
-                        helperText={errors.website?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+                <FormField
+                  control={form.control}
+                  name="website"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Website</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="url" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-          <Box display="flex" justifyContent="flex-end" mt={3}>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={!isDirty || isSubmitting}
-            >
-              Save Changes
-            </Button>
-          </Box>
-        </Grid>
-      </Grid>
-    </form>
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Address</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="space-y-2">
+                  <FormLabel>Location</FormLabel>
+                  <div className="h-[300px]">
+                    <LoadScript googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}>
+                      <GoogleMap
+                        mapContainerStyle={{ width: '100%', height: '100%' }}
+                        center={selectedLocation}
+                        zoom={13}
+                        onClick={handleMapClick}
+                      >
+                        <Marker position={selectedLocation} />
+                      </GoogleMap>
+                    </LoadScript>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <FormLabel>Social Media</FormLabel>
+                  <div className="grid grid-cols-1 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="socialMedia.facebook"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Facebook</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="url" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="socialMedia.instagram"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Instagram</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="url" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="socialMedia.twitter"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Twitter</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="url" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button type="submit">Save Changes</Button>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
-
-export default BusinessProfile

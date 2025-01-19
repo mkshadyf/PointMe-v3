@@ -17,6 +17,13 @@ import {
   IconButton,
   Tooltip,
   Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  CircularProgress,
 } from '@mui/material';
 import {
   Check as ApproveIcon,
@@ -26,8 +33,8 @@ import {
   Phone as PhoneIcon,
   LocationOn as LocationIcon,
 } from '@mui/icons-material';
-import { useQuery, useMutation, useQueryClient } from 'react-query';
-import adminService from '../../services/adminService';
+import useSWR, { useSWRConfig } from 'swr';
+import { adminService } from '@/services/adminService';
 import type { Business } from '../../types/business';
 
 interface BusinessApprovalProps {
@@ -38,48 +45,47 @@ export default function BusinessApproval({ onClose }: BusinessApprovalProps) {
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewNote, setReviewNote] = useState('');
-  const queryClient = useQueryClient();
+  const { mutate } = useSWRConfig();
 
   // Fetch pending businesses
-  const { data: pendingBusinesses, isLoading } = useQuery(
+  const { data: pendingBusinesses, error, isLoading } = useSWR(
     'pendingBusinesses',
     () => adminService.getPendingBusinesses()
   );
 
   // Approve business mutation
-  const approveMutation = useMutation(
-    (businessId: string) => adminService.approveBusinesses(businessId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('pendingBusinesses');
-        setReviewDialogOpen(false);
-        setSelectedBusiness(null);
-      },
+  const handleApprove = async (businessId: string) => {
+    try {
+      await adminService.approveBusinesses(businessId);
+      mutate('pendingBusinesses');
+      setReviewDialogOpen(false);
+      setSelectedBusiness(null);
+    } catch (error) {
+      console.error('Failed to approve business:', error);
     }
-  );
+  };
 
   // Reject business mutation
-  const rejectMutation = useMutation(
-    ({ businessId, reason }: { businessId: string; reason: string }) =>
-      adminService.rejectBusiness(businessId, reason),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('pendingBusinesses');
-        setReviewDialogOpen(false);
-        setSelectedBusiness(null);
-      },
+  const handleReject = async (businessId: string) => {
+    try {
+      await adminService.rejectBusiness(businessId, reviewNote);
+      mutate('pendingBusinesses');
+      setReviewDialogOpen(false);
+      setSelectedBusiness(null);
+    } catch (error) {
+      console.error('Failed to reject business:', error);
     }
-  );
+  };
 
   // Suspend business mutation
-  const suspendMutation = useMutation(
-    (businessId: string) => adminService.suspendUser(businessId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('pendingBusinesses');
-      },
+  const handleSuspend = async (businessId: string) => {
+    try {
+      await adminService.suspendUser(businessId);
+      mutate('pendingBusinesses');
+    } catch (error) {
+      console.error('Failed to suspend business:', error);
     }
-  );
+  };
 
   const handleOpenReview = (business: Business) => {
     setSelectedBusiness(business);
@@ -90,25 +96,6 @@ export default function BusinessApproval({ onClose }: BusinessApprovalProps) {
     setReviewDialogOpen(false);
     setSelectedBusiness(null);
     setReviewNote('');
-  };
-
-  const handleApprove = () => {
-    if (selectedBusiness) {
-      approveMutation.mutate(selectedBusiness.id);
-    }
-  };
-
-  const handleReject = () => {
-    if (selectedBusiness && reviewNote) {
-      rejectMutation.mutate({
-        businessId: selectedBusiness.id,
-        reason: reviewNote,
-      });
-    }
-  };
-
-  const handleSuspend = (businessId: string) => {
-    suspendMutation.mutate(businessId);
   };
 
   const BusinessCard: React.FC<{ business: Business }> = ({ business }) => (
@@ -181,8 +168,26 @@ export default function BusinessApproval({ onClose }: BusinessApprovalProps) {
 
   if (isLoading) {
     return (
-      <Box p={3}>
-        <Typography>Loading...</Typography>
+      <Box display="flex" justifyContent="center" p={3}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Typography color="error" align="center">
+        Error loading approval requests
+      </Typography>
+    );
+  }
+
+  if (!pendingBusinesses?.length) {
+    return (
+      <Box textAlign="center" p={3}>
+        <Typography variant="body1" color="text.secondary">
+          No pending approval requests
+        </Typography>
       </Box>
     );
   }
@@ -192,13 +197,62 @@ export default function BusinessApproval({ onClose }: BusinessApprovalProps) {
       <Typography variant="h5" gutterBottom>
         Business Approvals
       </Typography>
-      {pendingBusinesses?.length === 0 ? (
-        <Alert severity="info">No pending business approvals</Alert>
-      ) : (
-        pendingBusinesses?.map((business) => (
-          <BusinessCard key={business.id} business={business} />
-        ))
-      )}
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Business Name</TableCell>
+              <TableCell>Owner</TableCell>
+              <TableCell>Category</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {pendingBusinesses?.map((business) => (
+              <TableRow key={business.id}>
+                <TableCell>{business.name}</TableCell>
+                <TableCell>{business.ownerId}</TableCell>
+                <TableCell>{business.category}</TableCell>
+                <TableCell>
+                  <Chip
+                    label={business.status}
+                    color={
+                      business.status === 'pending'
+                        ? 'warning'
+                        : business.status === 'approved'
+                        ? 'success'
+                        : 'error'
+                    }
+                    size="small"
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    onClick={() => handleApprove(business.id)}
+                    disabled={business.status !== 'pending'}
+                    sx={{ mr: 1 }}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    onClick={() => handleReject(business.id)}
+                    disabled={business.status !== 'pending'}
+                  >
+                    Reject
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Dialog open={reviewDialogOpen} onClose={handleCloseReview}>
         <DialogTitle>
@@ -218,15 +272,17 @@ export default function BusinessApproval({ onClose }: BusinessApprovalProps) {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseReview}>Cancel</Button>
-          <Button
-            onClick={handleReject}
+          <Button 
+            component="a"
+            onClick={() => handleReject(selectedBusiness?.id || '')}
             color="error"
             disabled={!reviewNote}
           >
             Reject
           </Button>
           <Button
-            onClick={handleApprove}
+            component="a"
+            onClick={() => handleApprove(selectedBusiness?.id || '')}
             color="success"
             disabled={!selectedBusiness}
           >

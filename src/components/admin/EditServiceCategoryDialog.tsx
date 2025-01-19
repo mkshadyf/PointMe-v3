@@ -16,7 +16,7 @@ import {
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQuery, useQueryClient } from 'react-query'
+import useSWR, { mutate } from 'swr'
 import categoryService from '../../services/categoryService'
 import { ServiceCategory, UpdateServiceCategoryInput } from '../../types/category'
 
@@ -37,14 +37,14 @@ interface EditServiceCategoryDialogProps {
   onClose: () => void
 }
 
-const EditServiceCategoryDialog: React.FC<EditServiceCategoryDialogProps> = ({
+export default function EditServiceCategoryDialog({
   open,
-  category,
   onClose,
-}) => {
-  const queryClient = useQueryClient()
+  category,
+}: EditServiceCategoryDialogProps) {
+  const { mutate } = useSWR()
 
-  const { data: businessCategories } = useQuery(
+  const { data: businessCategories } = useSWR(
     'businessCategories',
     () => categoryService.getBusinessCategories()
   )
@@ -73,24 +73,19 @@ const EditServiceCategoryDialog: React.FC<EditServiceCategoryDialogProps> = ({
     }
   }, [open, category, reset])
 
-  const updateMutation = useMutation(
-    (data: UpdateServiceCategoryInput) => 
-      categoryService.updateServiceCategory(category.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('serviceCategories')
-        handleClose()
-      },
-    }
-  )
-
-  const onSubmit = async (data: UpdateServiceCategoryInput) => {
+  const handleUpdateCategory = async (data: UpdateServiceCategoryInput) => {
     try {
-      await updateMutation.mutateAsync(data)
+      await categoryService.updateServiceCategory(category.id, data)
+      await mutate('serviceCategories')
+      onClose()
     } catch (error) {
       console.error('Failed to update service category:', error)
       // Handle error (show notification, etc.)
     }
+  }
+
+  const onSubmit = (data: UpdateServiceCategoryInput) => {
+    handleUpdateCategory(data)
   }
 
   const handleClose = () => {
@@ -181,5 +176,3 @@ const EditServiceCategoryDialog: React.FC<EditServiceCategoryDialogProps> = ({
     </Dialog>
   )
 }
-
-export default EditServiceCategoryDialog

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Popover,
   List,
@@ -10,7 +10,6 @@ import {
   Box,
   Button,
   Divider,
-  ListItemSecondary,
   useTheme,
 } from '@mui/material'
 import {
@@ -18,70 +17,55 @@ import {
   Circle as CircleIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import {
-  notificationService,
-  Notification,
-  useNotificationSubscription,
-} from '../../services/notificationService'
 import { format, formatDistanceToNow } from 'date-fns'
-import { useAuthStore } from '../../stores/authStore'
+import { useAuthStore } from '@/stores/authStore'
+import { notificationService } from '@/services/notificationService'
+import useSWR from 'swr'
+import type { Notification } from '@/types/notification'
 
-const NotificationCenter: React.FC = () => {
+interface NotificationData {
+  id: string;
+  title: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  metadata?: Record<string, any>;
+  onClick?: () => void;
+}
+
+export default function NotificationCenter() {
   const theme = useTheme()
   const [anchorEl, setAnchorEl] = React.useState<HTMLButtonElement | null>(null)
+  const [isOpen, setIsOpen] = useState(false)
   const { user } = useAuthStore()
-  const queryClient = useQueryClient()
 
-  useNotificationSubscription(user?.id || null)
-
-  const { data: notifications = [] } = useQuery(
-    ['notifications', user?.id],
-    () => notificationService.getNotifications(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: notifications, error, mutate } = useSWR<Notification[]>(
+    'notifications',
+    () => notificationService.getNotifications()
   )
 
-  const markAsReadMutation = useMutation(
-    (notificationId: string) => notificationService.markAsRead(notificationId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['notifications', user?.id])
-      },
-    }
-  )
+  const handleMarkAsRead = async (notification: NotificationData) => {
+    await notificationService.markAsRead(notification.id)
+    mutate()
+  }
 
-  const markAllAsReadMutation = useMutation(
-    () => notificationService.markAllAsRead(user!.id),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['notifications', user?.id])
-      },
-    }
-  )
-
-  const deleteNotificationMutation = useMutation(
-    (notificationId: string) =>
-      notificationService.deleteNotification(notificationId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['notifications', user?.id])
-      },
-    }
-  )
+  const handleDismiss = async (notification: NotificationData) => {
+    await notificationService.dismiss(notification.id)
+    mutate()
+  }
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget)
+    setIsOpen(true)
   }
 
   const handleClose = () => {
     setAnchorEl(null)
+    setIsOpen(false)
   }
 
-  const handleNotificationClick = (notification: Notification) => {
-    if (!notification.isRead) {
-      markAsReadMutation.mutate(notification.id)
+  const handleNotificationClick = (notification: NotificationData) => {
+    if (!notification.onClick) {
+      handleMarkAsRead(notification)
     }
     // Handle notification click based on type and metadata
     if (notification.metadata?.link) {
@@ -101,6 +85,21 @@ const NotificationCenter: React.FC = () => {
         return theme.palette.error.main
       default:
         return theme.palette.info.main
+    }
+  }
+
+  const getNotificationContent = (notification: NotificationData) => {
+    switch (notification.type) {
+      case 'APPOINTMENT_CREATED':
+        return `New appointment scheduled for ${notification.message}`
+      case 'APPOINTMENT_CANCELLED':
+        return `Appointment cancelled for ${notification.message}`
+      case 'MESSAGE_RECEIVED':
+        return `New message from ${notification.message}`
+      case 'REVIEW_RECEIVED':
+        return `New review received with ${notification.message} stars`
+      default:
+        return notification.message
     }
   }
 
@@ -148,7 +147,7 @@ const NotificationCenter: React.FC = () => {
           {unreadCount > 0 && (
             <Button
               size="small"
-              onClick={() => markAllAsReadMutation.mutate()}
+              onClick={() => handleMarkAsRead(notifications.find((n) => !n.isRead))}
             >
               Mark all as read
             </Button>
@@ -182,6 +181,18 @@ const NotificationCenter: React.FC = () => {
                       ? 'transparent'
                       : 'action.hover',
                   }}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDismiss(notification)
+                      }}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  }
                 >
                   <Box
                     sx={{
@@ -206,32 +217,23 @@ const NotificationCenter: React.FC = () => {
                           color="text.secondary"
                           component="span"
                         >
-                          {notification.message}
+                          {getNotificationContent(notification)}
                         </Typography>
+                        <br />
                         <Typography
                           variant="caption"
                           color="text.secondary"
-                          component="div"
+                          component="span"
                         >
-                          {formatDistanceToNow(
-                            new Date(notification.createdAt),
-                            { addSuffix: true }
-                          )}
+                          {formatDistanceToNow(new Date(notification.createdAt), {
+                            addSuffix: true,
+                          })}
                         </Typography>
                       </>
                     }
                   />
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteNotificationMutation.mutate(notification.id)
-                    }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
                 </ListItem>
-                <Divider />
+                <Divider component="li" />
               </React.Fragment>
             ))
           )}
@@ -240,5 +242,3 @@ const NotificationCenter: React.FC = () => {
     </>
   )
 }
-
-export default NotificationCenter

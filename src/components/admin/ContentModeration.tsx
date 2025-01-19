@@ -37,10 +37,10 @@ import {
   Business as BusinessIcon,
   Person as PersonIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import adminService from '../../services/adminService'
-import { useAuthStore } from '../../stores/authStore'
-import { useNotification } from '../../contexts/NotificationContext'
+import { trpc } from '@/utils/trpc'
+import {adminService} from '@/services/adminService'
+import { useAuthStore } from '@/stores/authStore'
+import { useNotification } from '@/contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
 import { format } from 'date-fns'
 
@@ -78,7 +78,6 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
 const ContentModeration: React.FC = () => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
   const [tabValue, setTabValue] = React.useState(0)
   const [selectedReport, setSelectedReport] = React.useState<Report | null>(
     null
@@ -86,24 +85,32 @@ const ContentModeration: React.FC = () => {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [actionNote, setActionNote] = React.useState('')
 
-  const { data: reports, isLoading } = useQuery(
-    ['reports', tabValue],
-    () => adminService.getContentReports()
-  )
-
-  const updateReportMutation = useMutation(
-    (data: { id: string; status: string; note: string }) =>
-      data.status === 'resolved'
-        ? adminService.resolveReport(data.id)
-        : adminService.dismissReport(data.id),
+  const utils = trpc.useContext()
+  
+  const { data: reports, isLoading } = trpc.admin.getContentReports.useQuery(
+    { status: tabValue === 0 ? 'pending' : tabValue === 1 ? 'resolved' : 'rejected' },
     {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['reports'])
-        setDialogOpen(false)
-        setActionNote('')
-      },
+      enabled: !!user?.id,
     }
   )
+
+  const resolveReportMutation = trpc.admin.resolveReport.useMutation({
+    onSuccess: () => {
+      utils.admin.getContentReports.invalidate()
+      setDialogOpen(false)
+      setActionNote('')
+      showNotification('Report resolved successfully', 'success')
+    },
+  })
+
+  const dismissReportMutation = trpc.admin.dismissReport.useMutation({
+    onSuccess: () => {
+      utils.admin.getContentReports.invalidate()
+      setDialogOpen(false)
+      setActionNote('')
+      showNotification('Report dismissed', 'success')
+    },
+  })
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue)
@@ -122,24 +129,29 @@ const ContentModeration: React.FC = () => {
 
   const handleAction = (status: string) => {
     if (selectedReport) {
-      updateReportMutation.mutate({
-        id: selectedReport.id,
-        status,
-        note: actionNote,
-      })
+      if (status === 'resolved') {
+        resolveReportMutation.mutate({
+          id: selectedReport.id,
+          note: actionNote,
+        })
+      } else {
+        dismissReportMutation.mutate({
+          id: selectedReport.id,
+          note: actionNote,
+        })
+      }
     }
   }
 
   const handleDeleteContent = async (contentId: string, contentType: string) => {
     try {
-      // Instead of deleting content, we'll resolve the report
-      await updateReportMutation.mutateAsync({
+      await resolveReportMutation.mutateAsync({
         id: contentId,
-        status: 'resolved',
         note: 'Content removed',
       })
     } catch (error) {
       console.error('Error handling content:', error)
+      showNotification('Failed to handle content', 'error')
     }
   }
 
@@ -281,9 +293,8 @@ const ContentModeration: React.FC = () => {
               color="success"
               startIcon={<CheckCircleIcon />}
               onClick={() =>
-                updateReportMutation.mutate({
+                resolveReportMutation.mutate({
                   id: report.id,
-                  status: 'resolved',
                   note: '',
                 })
               }
@@ -295,9 +306,8 @@ const ContentModeration: React.FC = () => {
               color="error"
               startIcon={<BlockIcon />}
               onClick={() =>
-                updateReportMutation.mutate({
+                dismissReportMutation.mutate({
                   id: report.id,
-                  status: 'rejected',
                   note: '',
                 })
               }
@@ -347,9 +357,7 @@ const ContentModeration: React.FC = () => {
               label={
                 <Badge
                   badgeContent={
-                    reports?.filter(
-                      (r) => r.status === 'pending'
-                    ).length
+                    reports?.filter((r) => r.status === 'pending').length
                   }
                   color="error"
                 >
@@ -418,22 +426,22 @@ const ContentModeration: React.FC = () => {
             <Button onClick={handleCloseDialog}>Cancel</Button>
             <LoadingButton
               color="error"
-              onClick={() => handleDeleteContent(selectedReport?.id, selectedReport?.content.type)}
-              loading={updateReportMutation.isLoading}
+              onClick={() => handleDeleteContent(selectedReport?.id || '', selectedReport?.content.type || '')}
+              loading={resolveReportMutation.isLoading}
             >
               Delete Content
             </LoadingButton>
             <LoadingButton
               color="success"
               onClick={() => handleAction('resolved')}
-              loading={updateReportMutation.isLoading}
+              loading={resolveReportMutation.isLoading}
             >
               Resolve
             </LoadingButton>
             <LoadingButton
               color="error"
               onClick={() => handleAction('rejected')}
-              loading={updateReportMutation.isLoading}
+              loading={dismissReportMutation.isLoading}
             >
               Reject
             </LoadingButton>

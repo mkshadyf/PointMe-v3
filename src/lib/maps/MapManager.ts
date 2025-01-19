@@ -1,4 +1,4 @@
-import { Client, Status } from '@googlemaps/google-maps-services-js'
+import { Client, Status, PlaceDetailsResponse, PlaceAutocompleteResponse, DirectionsResponse } from '@googlemaps/google-maps-services-js'
 
 const client = new Client({})
 
@@ -30,15 +30,34 @@ export interface GeocodingResult {
   placeId?: string
 }
 
+export interface DirectionsResult {
+  distance: string
+  duration: string
+  steps: {
+    instruction: string
+    distance: string
+    duration: string
+  }[]
+  polyline: string
+}
+
+export interface AutocompleteResult {
+  placeId: string
+  description: string
+  mainText: string
+  secondaryText: string
+}
+
 export class MapManager {
+  private client: Client
   private apiKey: string
 
   constructor() {
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY
-    if (!apiKey) {
+    this.apiKey = process.env.GOOGLE_MAPS_API_KEY
+    if (!this.apiKey) {
       throw new Error('Google Maps API key is required')
     }
-    this.apiKey = apiKey
+    this.client = new Client({})
   }
 
   async geocodeAddress(address: string): Promise<GeocodingResult> {
@@ -99,50 +118,68 @@ export class MapManager {
 
   async getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     try {
-      const response = await client.placeDetails({
+      const response = await this.client.placeDetails({
         params: {
           place_id: placeId,
+          key: this.apiKey,
           fields: [
             'name',
             'formatted_address',
             'geometry',
+            'opening_hours',
             'photos',
             'rating',
-            'types',
-            'opening_hours',
-          ],
-          key: this.apiKey,
-        },
+            'types'
+          ]
+        }
       })
 
-      if (response.data.status !== Status.OK || !response.data.result) {
-        throw new Error('Failed to get place details')
+      const result = response.data.result
+      if (!result) throw new Error('No place details found')
+
+      const details: PlaceDetails = {
+        placeId,
+        name: result.name || '',
+        address: result.formatted_address || '',
+        location: {
+          latitude: result.geometry?.location.lat || 0,
+          longitude: result.geometry?.location.lng || 0
+        }
       }
 
-      const result = response.data.result
-      return {
-        placeId,
-        name: result.name,
-        address: result.formatted_address,
-        location: {
-          latitude: result.geometry.location.lat,
-          longitude: result.geometry.location.lng,
-        },
-        photos: result.photos?.map(
-          (photo) =>
-            `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photo.photo_reference}&key=${this.apiKey}`
-        ),
-        rating: result.rating,
-        types: result.types,
-        openingHours: result.opening_hours
-          ? {
-              periods: result.opening_hours.periods,
-              weekdayText: result.opening_hours.weekday_text,
+      if (result.opening_hours) {
+        details.openingHours = {
+          periods: result.opening_hours.periods.map(period => ({
+            open: {
+              day: period.open.day,
+              time: period.open.time
+            },
+            close: {
+              day: period.close.day,
+              time: period.close.time
             }
-          : undefined,
+          })),
+          weekdayText: result.opening_hours.weekday_text
+        }
       }
+
+      if (result.photos) {
+        details.photos = result.photos.map(photo => 
+          `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photo.photo_reference}&key=${this.apiKey}`
+        )
+      }
+
+      if (result.rating) {
+        details.rating = result.rating
+      }
+
+      if (result.types) {
+        details.types = result.types
+      }
+
+      return details
     } catch (error) {
-      console.error('Error getting place details:', error)
+      console.error('Error fetching place details:', error)
       throw error
     }
   }
@@ -151,17 +188,9 @@ export class MapManager {
     origin: string | Coordinates,
     destination: string | Coordinates,
     mode: 'driving' | 'walking' | 'bicycling' | 'transit' = 'driving'
-  ): Promise<{
-    distance: string
-    duration: string
-    steps: Array<{
-      instruction: string
-      distance: string
-      duration: string
-    }>
-  }> {
+  ): Promise<DirectionsResult> {
     try {
-      const response = await client.directions({
+      const response = await this.client.directions({
         params: {
           origin:
             typeof origin === 'string'
@@ -176,22 +205,24 @@ export class MapManager {
         },
       })
 
-      if (response.data.status !== Status.OK || !response.data.routes[0]) {
-        throw new Error('Failed to get directions')
-      }
+      const route = response.data.routes[0]
+      if (!route) throw new Error('No route found')
 
-      const route = response.data.routes[0].legs[0]
+      const leg = route.legs[0]
+      if (!leg) throw new Error('No route leg found')
+
       return {
-        distance: route.distance.text,
-        duration: route.duration.text,
-        steps: route.steps.map((step) => ({
+        distance: leg.distance.text,
+        duration: leg.duration.text,
+        steps: leg.steps.map(step => ({
           instruction: step.html_instructions,
           distance: step.distance.text,
-          duration: step.duration.text,
+          duration: step.duration.text
         })),
+        polyline: route.overview_polyline.points
       }
     } catch (error) {
-      console.error('Error getting directions:', error)
+      console.error('Error fetching directions:', error)
       throw error
     }
   }
@@ -201,9 +232,9 @@ export class MapManager {
     radius: number,
     type?: string,
     keyword?: string
-  ): Promise<Array<PlaceDetails>> {
+  ): Promise<PlaceDetails[]> {
     try {
-      const response = await client.placesNearby({
+      const response = await this.client.placesNearby({
         params: {
           location,
           radius,
@@ -233,9 +264,9 @@ export class MapManager {
   async autocompleteAddress(
     input: string,
     sessionToken: string
-  ): Promise<Array<{ description: string; placeId: string }>> {
+  ): Promise<AutocompleteResult[]> {
     try {
-      const response = await client.placeAutocomplete({
+      const response = await this.client.placeAutocomplete({
         params: {
           input,
           sessiontoken: sessionToken,
@@ -248,12 +279,42 @@ export class MapManager {
         throw new Error('Address autocomplete failed')
       }
 
-      return response.data.predictions.map((prediction) => ({
-        description: prediction.description,
+      return response.data.predictions.map(prediction => ({
         placeId: prediction.place_id,
+        description: prediction.description,
+        mainText: prediction.structured_formatting.main_text,
+        secondaryText: prediction.structured_formatting.secondary_text
       }))
     } catch (error) {
       console.error('Error autocompleting address:', error)
+      throw error
+    }
+  }
+
+  async getPlaceAutocomplete(
+    input: string,
+    location?: { lat: number; lng: number },
+    radius?: number
+  ): Promise<AutocompleteResult[]> {
+    try {
+      const response = await this.client.placeAutocomplete({
+        params: {
+          input,
+          key: this.apiKey,
+          location: location ? `${location.lat},${location.lng}` : undefined,
+          radius,
+          types: ['establishment', 'geocode']
+        }
+      })
+
+      return response.data.predictions.map(prediction => ({
+        placeId: prediction.place_id,
+        description: prediction.description,
+        mainText: prediction.structured_formatting.main_text,
+        secondaryText: prediction.structured_formatting.secondary_text
+      }))
+    } catch (error) {
+      console.error('Error fetching place autocomplete:', error)
       throw error
     }
   }

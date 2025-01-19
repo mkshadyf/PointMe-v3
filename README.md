@@ -82,7 +82,7 @@ PointMe is a comprehensive business management and appointment scheduling platfo
 - **Language**: TypeScript
 - **State Management**:
   - Zustand for global state
-  - TanStack Query (React Query) v4 for server state
+  - swr server state
 - **UI Components**:
   - Material-UI (MUI)
   - Radix UI
@@ -108,7 +108,7 @@ PointMe is a comprehensive business management and appointment scheduling platfo
 ### Third-party Integrations
 
 - **Maps**: Google Maps API
-- **Payments**: Stripe
+- **Payments**: PayFast
 - **Notifications**:
   - Email (SMTP)
   - SMS (Twilio)
@@ -140,7 +140,7 @@ src/
 - PostgreSQL 14.x or higher
 - Supabase account
 - Google Maps API key
-- Stripe account (for payments)
+- PayFast merchant account
 
 ### Environment Variables
 
@@ -148,8 +148,9 @@ src/
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-STRIPE_SECRET_KEY=your_stripe_secret_key
-STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+PAYFAST_MERCHANT_ID=your_payfast_merchant_id
+PAYFAST_MERCHANT_KEY=your_payfast_merchant_key
+PAYFAST_PASSPHRASE=your_payfast_passphrase
 ```
 
 ### Installation

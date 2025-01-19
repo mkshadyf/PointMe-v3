@@ -16,7 +16,7 @@ import {
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQuery, useQueryClient } from 'react-query'
+import useSWR, { mutate, useSWRConfig } from 'swr'
 import categoryService from '../../services/categoryService'
 import { CreateServiceCategoryInput } from '../../types/category'
 
@@ -36,13 +36,13 @@ interface AddServiceCategoryDialogProps {
   onClose: () => void
 }
 
-const AddServiceCategoryDialog: React.FC<AddServiceCategoryDialogProps> = ({
+export default function AddServiceCategoryDialog({
   open,
   onClose,
-}) => {
-  const queryClient = useQueryClient()
+}: AddServiceCategoryDialogProps) {
+  const { mutate } = useSWRConfig()
 
-  const { data: businessCategories } = useQuery(
+  const { data: businessCategories } = useSWR(
     'businessCategories',
     () => categoryService.getBusinessCategories()
   )
@@ -61,23 +61,19 @@ const AddServiceCategoryDialog: React.FC<AddServiceCategoryDialogProps> = ({
     },
   })
 
-  const createMutation = useMutation(
-    (data: CreateServiceCategoryInput) => categoryService.createServiceCategory(data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('serviceCategories')
-        handleClose()
-      },
-    }
-  )
-
-  const onSubmit = async (data: CreateServiceCategoryInput) => {
+  const handleCreateCategory = async (data: CreateServiceCategoryInput) => {
     try {
-      await createMutation.mutateAsync(data)
+      await categoryService.createServiceCategory(data)
+      await mutate('serviceCategories')
+      onClose()
     } catch (error) {
       console.error('Failed to create service category:', error)
       // Handle error (show notification, etc.)
     }
+  }
+
+  const onSubmit = (data: CreateServiceCategoryInput) => {
+    handleCreateCategory(data)
   }
 
   const handleClose = () => {
@@ -168,5 +164,3 @@ const AddServiceCategoryDialog: React.FC<AddServiceCategoryDialogProps> = ({
     </Dialog>
   )
 }
-
-export default AddServiceCategoryDialog

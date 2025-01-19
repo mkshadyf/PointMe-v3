@@ -29,19 +29,48 @@ import {
   Instagram as InstagramIcon,
 } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
-import { useAuth } from '../../lib/auth/AuthProvider';
-import { Business } from '../../types/business';
-import businessService from '../../services/businessService';
+import { useAuth } from '@/lib/auth/AuthProvider';
+import { Business, UpdateBusinessInput } from '@/types/business';
+import { businessService } from '@/services/businessService';
+import { uploadFile } from '@/lib/storage';
+
+interface BusinessProfileForm extends UpdateBusinessInput {
+  socialMedia?: {
+    facebook?: string;
+    twitter?: string;
+    instagram?: string;
+  };
+  website?: string;
+  logoUrl?: string;
+  coverImageUrl?: string;
+}
 
 export default function BusinessProfile() {
   const { user } = useAuth();
   const [business, setBusiness] = useState<Business | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  const { control, handleSubmit, reset } = useForm();
+  const { control, handleSubmit, reset, formState: { errors, isDirty } } = useForm<BusinessProfileForm>({
+    defaultValues: {
+      name: '',
+      description: '',
+      email: '',
+      phone: '',
+      address: '',
+      category: '',
+      subcategories: [],
+      website: '',
+      socialMedia: {
+        facebook: '',
+        twitter: '',
+        instagram: '',
+      },
+    },
+  });
 
   useEffect(() => {
     loadBusinessProfile();
@@ -50,10 +79,10 @@ export default function BusinessProfile() {
   const loadBusinessProfile = async () => {
     try {
       if (!user) return;
-      const business = await businessService.getBusinessByOwnerId(user.id);
-      if (business) {
-        setBusiness(business);
-        reset(business);
+      const businessData = await businessService.getBusinessByUserId(user.id);
+      if (businessData) {
+        setBusiness(businessData);
+        reset(businessData);
       }
     } catch (err) {
       setError('Failed to load business profile');
@@ -61,45 +90,56 @@ export default function BusinessProfile() {
     }
   };
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: BusinessProfileForm) => {
     try {
+      setIsLoading(true);
       if (!business) return;
-      await businessService.updateBusiness(business.id, data);
+      
+      const updateData: UpdateBusinessInput = {
+        name: data.name,
+        description: data.description,
+        email: data.email,
+        phone: data.phone,
+        address: data.address,
+        category: data.category,
+        subcategories: data.subcategories,
+        website: data.website,
+        socialMedia: data.socialMedia,
+      };
+
+      await businessService.updateBusiness(business.id, updateData);
       setIsEditing(false);
-      loadBusinessProfile();
+      await loadBusinessProfile();
+      setError(null);
     } catch (err) {
       setError('Failed to update business profile');
       console.error(err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'cover') => {
     try {
+      setIsLoading(true);
       const file = event.target.files?.[0];
       if (!file || !business) return;
 
-      const formData = new FormData();
-      formData.append('file', file);
-
-      // Upload image and get URL
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Failed to upload image');
-
-      const { url } = await response.json();
+      // Upload to storage
+      const url = await uploadFile(`business/${business.id}/${type}`, file);
 
       // Update business profile with new image URL
       await businessService.updateBusiness(business.id, {
         [type === 'logo' ? 'logoUrl' : 'coverImageUrl']: url,
       });
 
-      loadBusinessProfile();
+      await loadBusinessProfile();
+      setError(null);
     } catch (err) {
       setError('Failed to upload image');
       console.error(err);
+    } finally {
+      setIsLoading(false);
     }
   };
 

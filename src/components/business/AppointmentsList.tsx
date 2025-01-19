@@ -11,8 +11,8 @@ import {
   CircularProgress,
   Button,
 } from '@mui/material'
-import { format } from 'date-fns'
-import { useQuery } from 'react-query'
+import { format, parseISO } from 'date-fns'
+import useSWR from 'swr'
 
 interface Appointment {
   id: string
@@ -27,49 +27,47 @@ interface AppointmentsListProps {
   businessId: string
 }
 
-const getStatusColor = (status: Appointment['status']) => {
-  switch (status) {
-    case 'pending':
-      return 'warning'
-    case 'confirmed':
-      return 'info'
-    case 'completed':
-      return 'success'
-    case 'cancelled':
-      return 'error'
-    default:
-      return 'default'
-  }
+const appointmentService = {
+  getAppointments: async (businessId: string) => {
+    // Simulated API call
+    return [
+      {
+        id: '1',
+        customerName: 'John Doe',
+        serviceName: 'Haircut',
+        startTime: '2024-01-16T10:00:00',
+        endTime: '2024-01-16T11:00:00',
+        status: 'confirmed',
+      },
+      {
+        id: '2',
+        customerName: 'Jane Smith',
+        serviceName: 'Manicure',
+        startTime: '2024-01-16T11:30:00',
+        endTime: '2024-01-16T12:30:00',
+        status: 'pending',
+      },
+    ] as Appointment[]
+  },
 }
 
 const AppointmentsList: React.FC<AppointmentsListProps> = ({ businessId }) => {
-  // TODO: Replace with actual API call
-  const { data: appointments, isLoading } = useQuery<Appointment[]>(
-    ['appointments', businessId, 'today'],
-    async () => {
-      // Simulated API call
-      return [
-        {
-          id: '1',
-          customerName: 'John Doe',
-          serviceName: 'Haircut',
-          startTime: '2024-01-16T10:00:00',
-          endTime: '2024-01-16T11:00:00',
-          status: 'confirmed',
-        },
-        {
-          id: '2',
-          customerName: 'Jane Smith',
-          serviceName: 'Manicure',
-          startTime: '2024-01-16T11:30:00',
-          endTime: '2024-01-16T12:30:00',
-          status: 'pending',
-        },
-      ] as Appointment[]
-    }
+  const { data: appointments, error } = useSWR(
+    businessId ? ['appointments', businessId] : null,
+    () => appointmentService.getAppointments(businessId)
   )
 
-  if (isLoading) {
+  if (error) {
+    return (
+      <Box textAlign="center" py={4}>
+        <Typography variant="body1" color="error">
+          Error loading appointments
+        </Typography>
+      </Box>
+    )
+  }
+
+  if (!appointments) {
     return (
       <Box display="flex" justifyContent="center" p={3}>
         <CircularProgress />
@@ -77,71 +75,42 @@ const AppointmentsList: React.FC<AppointmentsListProps> = ({ businessId }) => {
     )
   }
 
-  if (!appointments?.length) {
+  if (appointments.length === 0) {
     return (
-      <Box textAlign="center" p={3}>
-        <Typography variant="body1" color="text.secondary" gutterBottom>
-          No appointments scheduled for today
+      <Box textAlign="center" py={4}>
+        <Typography variant="body1" color="text.secondary">
+          No appointments found
         </Typography>
-        <Button variant="outlined" color="primary">
-          View All Appointments
-        </Button>
       </Box>
     )
   }
 
   return (
-    <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
+    <List>
       {appointments.map((appointment) => (
-        <ListItem
-          key={appointment.id}
-          alignItems="flex-start"
-          sx={{
-            borderBottom: '1px solid',
-            borderColor: 'divider',
-            '&:last-child': {
-              borderBottom: 'none',
-            },
-          }}
-        >
+        <ListItem key={appointment.id}>
           <ListItemAvatar>
-            <Avatar>{appointment.customerName[0]}</Avatar>
+            <Avatar>
+              {/* <PersonIcon /> */}
+            </Avatar>
           </ListItemAvatar>
           <ListItemText
-            primary={
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Typography variant="subtitle1">
-                  {appointment.customerName}
-                </Typography>
-                <Chip
-                  label={appointment.status}
-                  color={getStatusColor(appointment.status)}
-                  size="small"
-                />
-              </Box>
+            primary={appointment.customerName}
+            secondary={format(parseISO(appointment.startTime), 'PPpp')}
+          />
+          <Chip
+            label={appointment.status}
+            color={
+              appointment.status === 'confirmed'
+                ? 'success'
+                : appointment.status === 'pending'
+                ? 'warning'
+                : 'error'
             }
-            secondary={
-              <>
-                <Typography
-                  component="span"
-                  variant="body2"
-                  color="text.primary"
-                >
-                  {appointment.serviceName}
-                </Typography>
-                {' — '}
-                {format(new Date(appointment.startTime), 'h:mm a')} -{' '}
-                {format(new Date(appointment.endTime), 'h:mm a')}
-              </>
-            }
+            size="small"
           />
         </ListItem>
       ))}
-      <Box textAlign="center" pt={2}>
-        <Button variant="text" color="primary">
-          View All Appointments
-        </Button>
-      </Box>
     </List>
   )
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box,
   Container,
@@ -26,6 +26,7 @@ import {
   Switch,
   FormControlLabel,
   InputAdornment,
+  Alert,
 } from '@mui/material'
 import {
   Add as AddIcon,
@@ -37,11 +38,12 @@ import {
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import serviceService from '../../services/serviceService'
-import { useAuthStore } from '../../stores/authStore'
-import { useNotification } from '../../contexts/NotificationContext'
+import useSWR from 'swr'
+import serviceService, { CreateServiceInput, UpdateServiceInput } from '@/services/serviceService'
+import { useAuthStore } from '@/stores/authStore'
+import { useNotification } from '@/contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
+import { Service } from '@/types/business'
 
 const serviceSchema = z.object({
   name: z.string().min(2, 'Service name is required'),
@@ -56,31 +58,33 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>
 
-const ServiceManagement: React.FC = () => {
+interface ServiceManagementProps {
+  businessId: string;
+}
+
+const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false)
-  const [selectedService, setSelectedService] = React.useState<any>(null)
-  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [selectedService, setSelectedService] = useState<Service | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const { data: services, isLoading } = useQuery(
-    ['services', user?.id],
-    () => serviceService.getBusinessServices(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: services, error: servicesError, mutate: mutateServices } = useSWR(
+    businessId ? ['services', businessId] : null,
+    () => serviceService.getServices(businessId)
   )
 
-  const { data: categories } = useQuery('serviceCategories', () =>
-    serviceService.getServiceCategories()
+  const { data: categories, error: categoriesError } = useSWR(
+    'service-categories',
+    () => serviceService.getServiceCategories()
   )
 
   const {
     control,
     handleSubmit,
     reset,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
@@ -95,174 +99,88 @@ const ServiceManagement: React.FC = () => {
     },
   })
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (selectedService) {
-      reset(selectedService)
+      reset({
+        name: selectedService.name,
+        description: selectedService.description || '',
+        duration: selectedService.duration,
+        price: selectedService.price,
+        category: selectedService.category,
+        isActive: selectedService.isActive,
+        maxParticipants: selectedService.maxParticipants || 1,
+        requiresConfirmation: selectedService.requiresConfirmation,
+      })
     }
   }, [selectedService, reset])
 
-  const createServiceMutation = useMutation(
-    (data: ServiceFormData) => serviceService.createService(user!.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['services', user?.id])
-        showNotification('Service created successfully', 'success')
-        handleCloseDialog()
-      },
-      onError: () => {
-        showNotification('Failed to create service', 'error')
-      },
+  const handleCreateService = async (data: ServiceFormData) => {
+    try {
+      setIsLoading(true)
+      const newService = await serviceService.createService(businessId, {
+        ...data,
+        requiresConfirmation: data.requiresConfirmation || false,
+      })
+      await mutateServices()
+      setIsDialogOpen(false)
+      reset()
+      showNotification('Service created successfully', 'success')
+    } catch (error) {
+      console.error('Failed to create service:', error)
+      showNotification('Failed to create service', 'error')
+    } finally {
+      setIsLoading(false)
     }
-  )
+  }
 
-  const updateServiceMutation = useMutation(
-    (data: ServiceFormData & { id: string }) =>
-      serviceService.updateService(data.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['services', user?.id])
-        showNotification('Service updated successfully', 'success')
-        handleCloseDialog()
-      },
-      onError: () => {
-        showNotification('Failed to update service', 'error')
-      },
+  const handleUpdateService = async (data: ServiceFormData) => {
+    if (!selectedService) return
+
+    try {
+      setIsLoading(true)
+      await serviceService.updateService(selectedService.id, {
+        ...data,
+        requiresConfirmation: data.requiresConfirmation || false,
+      })
+      await mutateServices()
+      setIsDialogOpen(false)
+      setSelectedService(null)
+      showNotification('Service updated successfully', 'success')
+    } catch (error) {
+      console.error('Failed to update service:', error)
+      showNotification('Failed to update service', 'error')
+    } finally {
+      setIsLoading(false)
     }
-  )
+  }
 
-  const deleteServiceMutation = useMutation(
-    (serviceId: string) => serviceService.deleteService(serviceId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['services', user?.id])
-        showNotification('Service deleted successfully', 'success')
-        setDeleteDialogOpen(false)
-      },
-      onError: () => {
-        showNotification('Failed to delete service', 'error')
-      },
+  const handleDeleteService = async () => {
+    if (!selectedService) return
+
+    try {
+      setIsLoading(true)
+      await serviceService.deleteService(selectedService.id)
+      await mutateServices()
+      setIsDeleteDialogOpen(false)
+      setSelectedService(null)
+      showNotification('Service deleted successfully', 'success')
+    } catch (error) {
+      console.error('Failed to delete service:', error)
+      showNotification('Failed to delete service', 'error')
+    } finally {
+      setIsLoading(false)
     }
-  )
+  }
 
-  const handleOpenDialog = (service?: any) => {
-    setSelectedService(service || null)
+  const handleOpenDialog = (service?: Service) => {
+    if (service) {
+      setSelectedService(service)
+    } else {
+      reset()
+      setSelectedService(null)
+    }
     setIsDialogOpen(true)
   }
-
-  const handleCloseDialog = () => {
-    setSelectedService(null)
-    setIsDialogOpen(false)
-    reset()
-  }
-
-  const handleDeleteClick = (service: any) => {
-    setSelectedService(service)
-    setDeleteDialogOpen(true)
-  }
-
-  const handleConfirmDelete = () => {
-    if (selectedService) {
-      deleteServiceMutation.mutate(selectedService.id)
-    }
-  }
-
-  const onSubmit = (data: ServiceFormData) => {
-    if (selectedService) {
-      updateServiceMutation.mutate({ ...data, id: selectedService.id })
-    } else {
-      createServiceMutation.mutate(data)
-    }
-  }
-
-  const ServiceCard: React.FC<{ service: any }> = ({ service }) => (
-    <Card>
-      <CardContent>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="flex-start"
-        >
-          <Typography variant="h6" gutterBottom>
-            {service.name}
-          </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={service.isActive}
-                onChange={(e) =>
-                  updateServiceMutation.mutate({
-                    ...service,
-                    isActive: e.target.checked,
-                  })
-                }
-              />
-            }
-            label={service.isActive ? 'Active' : 'Inactive'}
-          />
-        </Box>
-
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ mb: 2 }}
-        >
-          {service.description}
-        </Typography>
-
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <Box display="flex" alignItems="center" mb={1}>
-              <AccessTimeIcon
-                fontSize="small"
-                sx={{ color: 'text.secondary', mr: 1 }}
-              />
-              <Typography variant="body2">
-                {service.duration} minutes
-              </Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Box display="flex" alignItems="center" mb={1}>
-              <MoneyIcon
-                fontSize="small"
-                sx={{ color: 'text.secondary', mr: 1 }}
-              />
-              <Typography variant="body2">${service.price}</Typography>
-            </Box>
-          </Grid>
-        </Grid>
-
-        <Box mt={1}>
-          <Typography variant="body2" color="text.secondary">
-            Category: {service.category}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Max Participants: {service.maxParticipants}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Requires Confirmation: {service.requiresConfirmation ? 'Yes' : 'No'}
-          </Typography>
-        </Box>
-      </CardContent>
-      <CardActions>
-        <Button
-          size="small"
-          startIcon={<EditIcon />}
-          onClick={() => handleOpenDialog(service)}
-        >
-          Edit
-        </Button>
-        <Button
-          size="small"
-          startIcon={<DeleteIcon />}
-          color="error"
-          onClick={() => handleDeleteClick(service)}
-        >
-          Delete
-        </Button>
-      </CardActions>
-    </Card>
-  )
 
   if (!user) {
     return (
@@ -281,15 +199,18 @@ const ServiceManagement: React.FC = () => {
     )
   }
 
+  if (servicesError || categoriesError) {
+    return (
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Failed to load services or categories. Please try again later.
+      </Alert>
+    )
+  }
+
   return (
     <Container maxWidth="lg">
       <Box sx={{ my: 4 }}>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          mb={3}
-        >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
           <Typography variant="h4">Services</Typography>
           <Button
             variant="contained"
@@ -303,187 +224,225 @@ const ServiceManagement: React.FC = () => {
         <Grid container spacing={3}>
           {services?.map((service) => (
             <Grid item xs={12} sm={6} md={4} key={service.id}>
-              <ServiceCard service={service} />
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    {service.name}
+                  </Typography>
+                  <Typography color="text.secondary" noWrap>
+                    {service.description}
+                  </Typography>
+                  <Box sx={{ mt: 2 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ display: 'flex', alignItems: 'center', mb: 1 }}
+                    >
+                      <AccessTimeIcon sx={{ mr: 1 }} />
+                      {service.duration} minutes
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ display: 'flex', alignItems: 'center' }}
+                    >
+                      <MoneyIcon sx={{ mr: 1 }} />
+                      ${service.price}
+                    </Typography>
+                  </Box>
+                </CardContent>
+                <CardActions>
+                  <Button
+                    size="small"
+                    startIcon={<EditIcon />}
+                    onClick={() => handleOpenDialog(service)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => {
+                      setSelectedService(service)
+                      setIsDeleteDialogOpen(true)
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </CardActions>
+              </Card>
             </Grid>
           ))}
         </Grid>
 
-        {services?.length === 0 && (
-          <Box
-            sx={{
-              textAlign: 'center',
-              py: 8,
-            }}
-          >
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No services yet
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Start by adding your first service
-            </Typography>
-          </Box>
-        )}
-
         <Dialog
           open={isDialogOpen}
-          onClose={handleCloseDialog}
+          onClose={() => setIsDialogOpen(false)}
           maxWidth="sm"
           fullWidth
         >
-          <DialogTitle>
-            {selectedService ? 'Edit Service' : 'Add Service'}
-          </DialogTitle>
-          <form onSubmit={handleSubmit(onSubmit)}>
+          <form onSubmit={handleSubmit(selectedService ? handleUpdateService : handleCreateService)}>
+            <DialogTitle>
+              {selectedService ? 'Edit Service' : 'Add Service'}
+            </DialogTitle>
             <DialogContent>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <Controller
-                    name="name"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Service Name"
-                        fullWidth
-                        error={!!errors.name}
-                        helperText={errors.name?.message}
-                      />
-                    )}
-                  />
+              <Box sx={{ mt: 2 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Controller
+                      name="name"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          label="Service Name"
+                          fullWidth
+                          error={!!errors.name}
+                          helperText={errors.name?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Controller
+                      name="description"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          label="Description"
+                          fullWidth
+                          multiline
+                          rows={4}
+                          error={!!errors.description}
+                          helperText={errors.description?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Controller
+                      name="duration"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          type="number"
+                          label="Duration (minutes)"
+                          fullWidth
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <AccessTimeIcon />
+                              </InputAdornment>
+                            ),
+                          }}
+                          error={!!errors.duration}
+                          helperText={errors.duration?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Controller
+                      name="price"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          type="number"
+                          label="Price"
+                          fullWidth
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <MoneyIcon />
+                              </InputAdornment>
+                            ),
+                          }}
+                          error={!!errors.price}
+                          helperText={errors.price?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Controller
+                      name="category"
+                      control={control}
+                      render={({ field }) => (
+                        <FormControl fullWidth error={!!errors.category}>
+                          <InputLabel>Category</InputLabel>
+                          <Select {...field} label="Category">
+                            {categories?.map((category) => (
+                              <MenuItem key={category.id} value={category.id}>
+                                {category.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Controller
+                      name="maxParticipants"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          type="number"
+                          label="Max Participants"
+                          fullWidth
+                          error={!!errors.maxParticipants}
+                          helperText={errors.maxParticipants?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Controller
+                      name="requiresConfirmation"
+                      control={control}
+                      render={({ field }) => (
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={field.value}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                            />
+                          }
+                          label="Requires Confirmation"
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Controller
+                      name="isActive"
+                      control={control}
+                      render={({ field }) => (
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={field.value}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                            />
+                          }
+                          label="Active"
+                        />
+                      )}
+                    />
+                  </Grid>
                 </Grid>
-                <Grid item xs={12}>
-                  <Controller
-                    name="description"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Description"
-                        fullWidth
-                        multiline
-                        rows={3}
-                        error={!!errors.description}
-                        helperText={errors.description?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Controller
-                    name="duration"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Duration (minutes)"
-                        type="number"
-                        fullWidth
-                        error={!!errors.duration}
-                        helperText={errors.duration?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Controller
-                    name="price"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Price"
-                        type="number"
-                        fullWidth
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">$</InputAdornment>
-                          ),
-                        }}
-                        error={!!errors.price}
-                        helperText={errors.price?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Controller
-                    name="category"
-                    control={control}
-                    render={({ field }) => (
-                      <FormControl fullWidth error={!!errors.category}>
-                        <InputLabel>Category</InputLabel>
-                        <Select {...field}>
-                          {categories?.map((category) => (
-                            <MenuItem key={category.id} value={category.name}>
-                              {category.name}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Controller
-                    name="maxParticipants"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Max Participants"
-                        type="number"
-                        fullWidth
-                        error={!!errors.maxParticipants}
-                        helperText={errors.maxParticipants?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Controller
-                    name="isActive"
-                    control={control}
-                    render={({ field }) => (
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                          />
-                        }
-                        label="Active"
-                      />
-                    )}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Controller
-                    name="requiresConfirmation"
-                    control={control}
-                    render={({ field }) => (
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                          />
-                        }
-                        label="Requires Confirmation"
-                      />
-                    )}
-                  />
-                </Grid>
-              </Grid>
+              </Box>
             </DialogContent>
             <DialogActions>
-              <Button onClick={handleCloseDialog}>Cancel</Button>
+              <Button onClick={() => setIsDialogOpen(false)}>Cancel</Button>
               <LoadingButton
                 type="submit"
                 variant="contained"
-                loading={
-                  createServiceMutation.isLoading ||
-                  updateServiceMutation.isLoading
-                }
+                loading={isLoading}
+                disabled={!isDirty}
               >
                 {selectedService ? 'Update' : 'Create'}
               </LoadingButton>
@@ -492,23 +451,22 @@ const ServiceManagement: React.FC = () => {
         </Dialog>
 
         <Dialog
-          open={deleteDialogOpen}
-          onClose={() => setDeleteDialogOpen(false)}
+          open={isDeleteDialogOpen}
+          onClose={() => setIsDeleteDialogOpen(false)}
         >
           <DialogTitle>Delete Service</DialogTitle>
           <DialogContent>
             <Typography>
-              Are you sure you want to delete this service? This action cannot
-              be undone.
+              Are you sure you want to delete this service? This action cannot be
+              undone.
             </Typography>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
             <LoadingButton
-              onClick={handleConfirmDelete}
+              onClick={handleDeleteService}
               color="error"
-              variant="contained"
-              loading={deleteServiceMutation.isLoading}
+              loading={isLoading}
             >
               Delete
             </LoadingButton>

@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Box,
   Typography,
@@ -12,7 +12,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
-import { useQuery } from 'react-query'
+import useSWR, { useSWRConfig } from 'swr'
 import categoryService from '../../services/categoryService'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -41,8 +41,10 @@ const ServicesSetupForm: React.FC<ServicesSetupFormProps> = ({
   categoryId,
   onSubmit,
 }) => {
-  const { data: serviceCategories, isLoading } = useQuery(
-    ['serviceCategories', categoryId],
+  const { mutate } = useSWRConfig()
+  
+  const { data: serviceCategories, error } = useSWR(
+    categoryId ? ['serviceCategories', categoryId] : null,
     () => categoryService.getServiceCategories(categoryId)
   )
 
@@ -66,7 +68,34 @@ const ServicesSetupForm: React.FC<ServicesSetupFormProps> = ({
     onSubmit(data.services)
   }
 
-  if (isLoading) {
+  const handleAddService = async (values: ServiceData) => {
+    try {
+      await categoryService.createService({ ...values, categoryId })
+      mutate(['serviceCategories', categoryId])
+    } catch (error) {
+      console.error('Failed to add service:', error)
+    }
+  }
+
+  const handleUpdateService = async (serviceId: string, values: ServiceData) => {
+    try {
+      await categoryService.updateService(serviceId, values)
+      mutate(['serviceCategories', categoryId])
+    } catch (error) {
+      console.error('Failed to update service:', error)
+    }
+  }
+
+  const handleDeleteService = async (serviceId: string) => {
+    try {
+      await categoryService.deleteService(serviceId)
+      mutate(['serviceCategories', categoryId])
+    } catch (error) {
+      console.error('Failed to delete service:', error)
+    }
+  }
+
+  if (!serviceCategories) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
         <CircularProgress />
@@ -200,4 +229,3 @@ const ServicesSetupForm: React.FC<ServicesSetupFormProps> = ({
 }
 
 export default ServicesSetupForm
-

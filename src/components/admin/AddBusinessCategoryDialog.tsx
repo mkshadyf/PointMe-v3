@@ -11,7 +11,7 @@ import {
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQueryClient } from 'react-query'
+import { useSWRConfig } from 'swr'
 import categoryService from '../../services/categoryService'
 import { CreateBusinessCategoryInput } from '../../types/category'
 
@@ -33,13 +33,13 @@ const AddBusinessCategoryDialog: React.FC<AddBusinessCategoryDialogProps> = ({
   open,
   onClose,
 }) => {
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
 
   const {
     control,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<CreateBusinessCategoryInput>({
     resolver: zodResolver(businessCategorySchema),
     defaultValues: {
@@ -48,34 +48,25 @@ const AddBusinessCategoryDialog: React.FC<AddBusinessCategoryDialogProps> = ({
     },
   })
 
-  const createMutation = useMutation(
-    (data: CreateBusinessCategoryInput) => categoryService.createBusinessCategory(data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('businessCategories')
-        handleClose()
-      },
-    }
-  )
-
-  const onSubmit = async (data: CreateBusinessCategoryInput) => {
-    try {
-      await createMutation.mutateAsync(data)
-    } catch (error) {
-      console.error('Failed to create business category:', error)
-      // Handle error (show notification, etc.)
-    }
-  }
-
   const handleClose = () => {
     reset()
     onClose()
   }
 
+  const handleCreateCategory = async (data: CreateBusinessCategoryInput) => {
+    try {
+      await categoryService.createBusinessCategory(data)
+      mutate('businessCategories')
+      handleClose()
+    } catch (error) {
+      console.error('Failed to create business category:', error)
+    }
+  }
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Add Business Category</DialogTitle>
-      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <Box component="form" onSubmit={handleSubmit(handleCreateCategory)} noValidate>
         <DialogContent>
           <Controller
             name="name"
@@ -114,11 +105,7 @@ const AddBusinessCategoryDialog: React.FC<AddBusinessCategoryDialogProps> = ({
 
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={isSubmitting}
-          >
+          <Button type="submit" variant="contained">
             Add Category
           </Button>
         </DialogActions>

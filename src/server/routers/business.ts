@@ -1,11 +1,17 @@
 import { router, protectedProcedure, publicProcedure } from '../trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { prisma } from '../prisma';
+import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import type { Tables } from '@/lib/supabase';
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2022-11-15',
+  apiVersion: '2024-02-15',
 });
 
 const createBusinessSchema = z.object({
@@ -13,7 +19,7 @@ const createBusinessSchema = z.object({
   description: z.string().min(1).max(500),
 });
 
-const updateBusinessSchema = createBusinessSchema.partial()
+const updateBusinessSchema = createBusinessSchema.partial();
 
 const createServiceSchema = z.object({
   name: z.string().min(1).max(100),
@@ -23,7 +29,7 @@ const createServiceSchema = z.object({
   businessId: z.string(),
 });
 
-const updateServiceSchema = createServiceSchema.partial().omit({ businessId: true })
+const updateServiceSchema = createServiceSchema.partial().omit({ businessId: true });
 
 const createBookingSchema = z.object({
   serviceId: z.string(),
@@ -46,110 +52,145 @@ export const businessRouter = router({
   createService: protectedProcedure
     .input(createServiceSchema)
     .mutation(async ({ input, ctx }) => {
-      const business = await prisma.business.findUnique({
-        where: { id: input.businessId },
-      })
+      // Verify business ownership
+      const { data: business } = await supabase
+        .from('businesses')
+        .select()
+        .eq('id', input.businessId)
+        .eq('user_id', ctx.user.id)
+        .single();
 
-      if (!business || business.ownerId !== ctx.user.id) {
+      if (!business) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have permission to create a service for this business',
-        })
+          message: 'You do not own this business',
+        });
       }
 
-      const service = await prisma.service.create({
-        data: input,
-      })
+      const { data: service, error } = await supabase
+        .from('services')
+        .insert({
+          name: input.name,
+          description: input.description,
+          price: input.price,
+          duration: input.duration,
+          business_id: input.businessId,
+        })
+        .select()
+        .single();
 
-      return service
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+      return service;
     }),
 
   updateService: protectedProcedure
     .input(z.object({
       id: z.string(),
-      data: updateServiceSchema,
+      ...updateServiceSchema.shape,
     }))
     .mutation(async ({ input, ctx }) => {
-      const service = await prisma.service.findUnique({
-        where: { id: input.id },
-        include: { business: true },
-      })
+      const { data: service, error } = await supabase
+        .from('services')
+        .update({
+          name: input.name,
+          description: input.description,
+          price: input.price,
+          duration: input.duration,
+        })
+        .eq('id', input.id)
+        .select('*, business!inner(*)')
+        .single();
 
-      if (!service || service.business.ownerId !== ctx.user.id) {
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      // Verify business ownership
+      if (service.business.user_id !== ctx.user.id) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have permission to update this service',
-        })
+          message: 'You do not own this business',
+        });
       }
 
-      const updatedService = await prisma.service.update({
-        where: { id: input.id },
-        data: input.data,
-      })
-
-      return updatedService
+      return service;
     }),
 
   getBusinessServices: protectedProcedure
     .input(z.string())
     .query(async ({ input, ctx }) => {
-      const business = await prisma.business.findUnique({
-        where: { id: input },
-      })
+      const { data: services, error } = await supabase
+        .from('services')
+        .select()
+        .eq('business_id', input);
 
-      if (!business || business.ownerId !== ctx.user.id) {
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      // Verify business ownership
+      if (services.length > 0 && services[0].business.user_id !== ctx.user.id) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have permission to view services for this business',
-        })
+          message: 'You do not own this business',
+        });
       }
 
-      const services = await prisma.service.findMany({
-        where: { businessId: input },
-      })
-
-      return services
+      return services;
     }),
 
   createBooking: protectedProcedure
     .input(createBookingSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = await prisma.service.findUnique({
-        where: { id: input.serviceId },
-        include: { business: true },
-      })
+      const { data: service } = await supabase
+        .from('services')
+        .select('*, business(*)')
+        .eq('id', input.serviceId)
+        .single();
 
       if (!service) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Service not found',
-        })
+        });
       }
 
-      const endTime = new Date(input.startTime.getTime() + service.duration * 60000)
+      // Calculate end time based on service duration
+      const endTime = new Date(input.startTime);
+      endTime.setMinutes(endTime.getMinutes() + service.duration);
 
-      const booking = await prisma.booking.create({
-        data: {
-          serviceId: input.serviceId,
-          userId: ctx.user.id,
-          startTime: input.startTime,
-          endTime,
-          status: 'pending',
-        },
-      })
+      const { data: booking, error } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: ctx.user.id,
+          service_id: input.serviceId,
+          start_time: input.startTime.toISOString(),
+          end_time: endTime.toISOString(),
+        })
+        .select()
+        .single();
 
-      return booking
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      // Create notification for business owner
+      await supabase.from('notifications').insert({
+        user_id: service.business.user_id,
+        title: 'New Booking',
+        message: `New booking for ${service.name}`,
+        type: 'info',
+      });
+
+      return booking;
     }),
 
   getUserBookings: protectedProcedure
     .query(async ({ ctx }) => {
-      const bookings = await prisma.booking.findMany({
-        where: { userId: ctx.user.id },
-        include: { service: true },
-      })
+      const { data: bookings, error } = await supabase
+        .from('bookings')
+        .select('*, service!inner(*, business!inner(*))')
+        .eq('user_id', ctx.user.id);
 
-      return bookings
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      return bookings;
     }),
+
   createPaymentIntent: protectedProcedure
     .input(z.object({
       amount: z.number().positive(),
@@ -159,14 +200,14 @@ export const businessRouter = router({
       const paymentIntent = await stripe.paymentIntents.create({
         amount: input.amount,
         currency: input.currency,
-      })
+      });
 
       return {
         id: paymentIntent.id,
         clientSecret: paymentIntent.client_secret,
         amount: paymentIntent.amount,
         status: paymentIntent.status,
-      }
+      };
     }),
 
   confirmBookingPayment: protectedProcedure
@@ -175,145 +216,163 @@ export const businessRouter = router({
       paymentIntentId: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const booking = await prisma.booking.findUnique({
-        where: { id: input.bookingId },
-        include: { service: true },
-      })
+      const { data: booking, error } = await supabase
+        .from('bookings')
+        .select('*, service!inner(*, business!inner(*))')
+        .eq('id', input.bookingId)
+        .single();
+
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 
       if (!booking) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Booking not found',
-        })
+        });
       }
 
-      if (booking.userId !== ctx.user.id) {
+      if (booking.user_id !== ctx.user.id) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have permission to confirm this booking',
-        })
+          message: 'You do not own this booking',
+        });
       }
 
-      const paymentIntent = await stripe.paymentIntents.retrieve(input.paymentIntentId)
+      const paymentIntent = await stripe.paymentIntents.retrieve(input.paymentIntentId);
 
       if (paymentIntent.status !== 'succeeded') {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Payment has not been successfully processed',
-        })
+        });
       }
 
-      const updatedBooking = await prisma.booking.update({
-        where: { id: input.bookingId },
-        data: {
+      const { data: updatedBooking, error: updateError } = await supabase
+        .from('bookings')
+        .update({
           status: 'paid',
-          paymentIntentId: input.paymentIntentId,
-        },
-      })
+          payment_intent_id: input.paymentIntentId,
+        })
+        .eq('id', input.bookingId)
+        .select()
+        .single();
 
-      return updatedBooking
+      if (updateError) throw new TRPCError({ code: 'BAD_REQUEST', message: updateError.message });
+
+      return updatedBooking;
     }),
+
   createReview: protectedProcedure
     .input(createReviewSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = await prisma.service.findUnique({
-        where: { id: input.serviceId },
-      })
+      const { data: service } = await supabase
+        .from('services')
+        .select()
+        .eq('id', input.serviceId)
+        .single();
 
       if (!service) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Service not found',
-        })
+        });
       }
 
-      const review = await prisma.review.create({
-        data: {
-          ...input,
-          userId: ctx.user.id,
-        },
-      })
+      const { data: review, error } = await supabase
+        .from('reviews')
+        .insert({
+          user_id: ctx.user.id,
+          service_id: input.serviceId,
+          rating: input.rating,
+          comment: input.comment,
+        })
+        .select('*, service!inner(*, business!inner(*))')
+        .single();
 
-      // Create a notification for the business owner
-      await prisma.notification.create({
-        data: {
-          userId: service.businessId,
-          message: `New review for your service "${service.name}"`,
-          type: 'info',
-        },
-      })
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 
-      return review
+      // Create notification for business owner
+      await supabase.from('notifications').insert({
+        user_id: review.service.business.user_id,
+        title: 'New Review',
+        message: `New review for ${review.service.name}`,
+        type: 'info',
+      });
+
+      return review;
     }),
 
   getServiceReviews: protectedProcedure
     .input(z.string())
     .query(async ({ input }) => {
-      const reviews = await prisma.review.findMany({
-        where: { serviceId: input },
-        include: { user: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-      })
-      return reviews
+      const { data: reviews, error } = await supabase
+        .from('reviews')
+        .select('*, user!inner(*)')
+        .eq('service_id', input)
+        .order('created_at', { ascending: false });
+
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      return reviews;
     }),
+
   getAnalytics: protectedProcedure
     .input(z.string())
     .query(async ({ input: businessId, ctx }) => {
-      const business = await prisma.business.findUnique({
-        where: { id: businessId },
-      })
+      const { data: business, error } = await supabase
+        .from('businesses')
+        .select()
+        .eq('id', businessId)
+        .single();
 
-      if (!business || business.ownerId !== ctx.user.id) {
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      if (!business || business.user_id !== ctx.user.id) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have permission to view analytics for this business',
-        })
+          message: 'You do not own this business',
+        });
       }
 
-      const bookings = await prisma.booking.findMany({
-        where: {
-          service: {
-            businessId: businessId,
-          },
-          status: 'paid',
-        },
-        include: {
-          service: true,
-        },
-      })
+      const { data: bookings, error: bookingsError } = await supabase
+        .from('bookings')
+        .select('*, service!inner(*)')
+        .eq('service.business_id', businessId)
+        .eq('status', 'paid');
 
-      const totalBookings = bookings.length
-      const totalRevenue = bookings.reduce((sum, booking) => sum + booking.service.price, 0)
+      if (bookingsError) throw new TRPCError({ code: 'BAD_REQUEST', message: bookingsError.message });
 
-      const servicePerformance = await prisma.service.findMany({
-        where: { businessId: businessId },
-        select: {
-          id: true,
-          name: true,
-          bookings: {
-            where: { status: 'paid' },
-          },
-        },
-      })
+      const totalBookings = bookings.length;
+      const totalRevenue = bookings.reduce((sum, booking) => sum + booking.service.price, 0);
 
-      const servicePerformanceData = servicePerformance.map((service) => ({
+      const { data: services, error: servicesError } = await supabase
+        .from('services')
+        .select('*, bookings(*)')
+        .eq('business_id', businessId);
+
+      if (servicesError) throw new TRPCError({ code: 'BAD_REQUEST', message: servicesError.message });
+
+      const servicePerformanceData = services.map((service) => ({
         name: service.name,
         bookings: service.bookings.length,
         revenue: service.bookings.reduce((sum, booking) => sum + booking.service.price, 0),
-      }))
+      }));
 
       return {
         totalBookings,
         totalRevenue,
         servicePerformance: servicePerformanceData,
-      }
+      };
     }),
+
   createBusinessReview: protectedProcedure
     .input(createBusinessReviewSchema)
     .mutation(async ({ input, ctx }) => {
-      const business = await prisma.business.findUnique({
-        where: { id: input.businessId },
-      });
+      const { data: business } = await supabase
+        .from('businesses')
+        .select()
+        .eq('id', input.businessId)
+        .single();
 
       if (!business) {
         throw new TRPCError({
@@ -322,20 +381,25 @@ export const businessRouter = router({
         });
       }
 
-      const review = await prisma.businessReview.create({
-        data: {
-          ...input,
-          userId: ctx.user.id,
-        },
-      });
+      const { data: review, error } = await supabase
+        .from('business_reviews')
+        .insert({
+          user_id: ctx.user.id,
+          business_id: input.businessId,
+          rating: input.rating,
+          comment: input.comment,
+        })
+        .select('*, business(*)')
+        .single();
 
-      // Create a notification for the business owner
-      await prisma.notification.create({
-        data: {
-          userId: business.ownerId,
-          message: `New review for your business "${business.name}"`,
-          type: 'info',
-        },
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
+      // Create notification for business owner
+      await supabase.from('notifications').insert({
+        user_id: review.business.user_id,
+        title: 'New Business Review',
+        message: `New review for your business`,
+        type: 'info',
       });
 
       return review;
@@ -344,27 +408,27 @@ export const businessRouter = router({
   getBusinessReviews: publicProcedure
     .input(z.string())
     .query(async ({ input: businessId }) => {
-      const reviews = await prisma.businessReview.findMany({
-        where: { businessId },
-        include: { user: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
+      const { data: reviews, error } = await supabase
+        .from('business_reviews')
+        .select('*, user!inner(*)')
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+
       return reviews;
     }),
 
   getPublicBusinessDetails: publicProcedure
     .input(z.string())
     .query(async ({ input: businessId }) => {
-      const business = await prisma.business.findUnique({
-        where: { id: businessId },
-        include: {
-          services: true,
-          reviews: {
-            include: { user: { select: { name: true } } },
-            orderBy: { createdAt: 'desc' },
-          },
-        },
-      });
+      const { data: business, error } = await supabase
+        .from('businesses')
+        .select('*, services(*)')
+        .eq('id', businessId)
+        .single();
+
+      if (error) throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 
       if (!business) {
         throw new TRPCError({
@@ -373,9 +437,10 @@ export const businessRouter = router({
         });
       }
 
-      const averageRating = business.reviews.length > 0
-        ? business.reviews.reduce((sum, review) => sum + review.rating, 0) / business.reviews.length
-        : null;
+      const averageRating =
+        business.reviews.length > 0
+          ? business.reviews.reduce((sum, review) => sum + review.rating, 0) / business.reviews.length
+          : null;
 
       return {
         ...business,
@@ -383,4 +448,3 @@ export const businessRouter = router({
       };
     }),
 });
-

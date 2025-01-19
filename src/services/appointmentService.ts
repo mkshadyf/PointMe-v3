@@ -6,8 +6,8 @@ import {
   AppointmentFilters,
 } from '../types/appointment';
 
-const appointmentService = {
-  async getAppointments(filters?: AppointmentFilters): Promise<Appointment[]> {
+export const appointmentService = {
+  getAppointments: async (filters?: AppointmentFilters): Promise<Appointment[]> => {
     let query = supabase
       .from('appointments')
       .select('*, business:businesses(*), service:services(*)');
@@ -41,7 +41,7 @@ const appointmentService = {
     return data;
   },
 
-  async getAppointmentById(id: string): Promise<Appointment> {
+  getAppointmentById: async (id: string): Promise<Appointment> => {
     const { data, error } = await supabase
       .from('appointments')
       .select('*, business:businesses(*), service:services(*)')
@@ -51,33 +51,17 @@ const appointmentService = {
     return data;
   },
 
-  async createAppointment(input: CreateAppointmentInput): Promise<Appointment> {
-    // First check if the slot is available
-    const isAvailable = await this.checkAvailability(
-      input.businessId,
-      input.serviceId,
-      input.staffId,
-      input.date,
-      input.startTime
-    );
-
-    if (!isAvailable) {
-      throw new Error('This time slot is not available');
-    }
-
+  createAppointment: async (input: CreateAppointmentInput): Promise<Appointment> => {
     const { data, error } = await supabase
       .from('appointments')
-      .insert(input)
+      .insert([input])
       .select('*, business:businesses(*), service:services(*)')
       .single();
     if (error) throw error;
     return data;
   },
 
-  async updateAppointment(
-    id: string,
-    input: UpdateAppointmentInput
-  ): Promise<Appointment> {
+  updateAppointment: async (id: string, input: UpdateAppointmentInput): Promise<Appointment> => {
     const { data, error } = await supabase
       .from('appointments')
       .update(input)
@@ -88,41 +72,45 @@ const appointmentService = {
     return data;
   },
 
-  async deleteAppointment(id: string): Promise<void> {
+  deleteAppointment: async (id: string): Promise<void> => {
     const { error } = await supabase.from('appointments').delete().eq('id', id);
     if (error) throw error;
   },
 
-  async checkAvailability(
+  checkAvailability: async (
     businessId: string,
     serviceId: string,
     staffId: string | undefined,
     date: Date,
     startTime: string
-  ): Promise<boolean> {
-    // Get the service duration
-    const { data: service, error: serviceError } = await supabase
+  ): Promise<boolean> => {
+    const { data: service } = await supabase
       .from('services')
       .select('duration')
       .eq('id', serviceId)
       .single();
-    if (serviceError) throw serviceError;
 
-    // Check for conflicting appointments
-    const { data: conflicts, error: conflictError } = await supabase
+    if (!service) {
+      throw new Error('Service not found');
+    }
+
+    const endTime = appointmentService.calculateEndTime(startTime, service.duration);
+
+    const { data: conflictingAppointments } = await supabase
       .from('appointments')
       .select('*')
       .eq('businessId', businessId)
       .eq('date', date.toISOString().split('T')[0])
-      .or(`staffId.eq.${staffId},and(staffId.is.null)`)
-      .not('status', 'in', '("cancelled","no-show")')
-      .overlaps('startTime', this.calculateEndTime(startTime, service.duration));
+      .or(`staffId.eq.${staffId},staffId.is.null`)
+      .not('status', 'in', '(cancelled,rejected)')
+      .or(
+        `and(startTime.gte.${startTime},startTime.lt.${endTime}),and(endTime.gt.${startTime},endTime.lte.${endTime})`
+      );
 
-    if (conflictError) throw conflictError;
-    return conflicts.length === 0;
+    return !conflictingAppointments || conflictingAppointments.length === 0;
   },
 
-  calculateEndTime(startTime: string, durationMinutes: number): string {
+  calculateEndTime: (startTime: string, durationMinutes: number): string => {
     const [hours, minutes] = startTime.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes + durationMinutes;
     const endHours = Math.floor(totalMinutes / 60);
@@ -132,5 +120,3 @@ const appointmentService = {
       .padStart(2, '0')}`;
   },
 };
-
-export default appointmentService;

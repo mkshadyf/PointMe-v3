@@ -17,31 +17,48 @@ export interface NotificationSettings {
   phoneRecipients: string[];
 }
 
+export type NotificationType = 
+  | 'APPOINTMENT_CREATED'
+  | 'APPOINTMENT_CANCELLED'
+  | 'APPOINTMENT_UPDATED'
+  | 'MESSAGE_RECEIVED'
+  | 'REVIEW_RECEIVED'
+  | 'PAYMENT_RECEIVED'
+  | 'SYSTEM_NOTIFICATION'
+
+export interface NotificationData {
+  appointmentId?: string
+  date?: string
+  senderName?: string
+  rating?: number
+  amount?: number
+  message?: string
+  [key: string]: any
+}
+
 export interface Notification {
-  id: string;
-  userId: string;
-  type: string;
-  title: string;
-  message: string;
-  read: boolean;
-  channel: NotificationChannel;
-  data?: Record<string, any>;
-  createdAt: Date;
-  updatedAt: Date;
+  id: string
+  userId: string
+  type: NotificationType
+  title: string
+  message: string
+  data: NotificationData
+  readAt?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CreateNotificationInput {
-  userId: string;
-  type: string;
-  title: string;
-  message: string;
-  channel: NotificationChannel;
-  data?: Record<string, any>;
+  userId: string
+  type: NotificationType
+  title: string
+  message: string
+  data: NotificationData
 }
 
 export interface UpdateNotificationInput {
-  read?: boolean;
-  data?: Record<string, any>;
+  id: string
+  readAt?: string
 }
 
 export interface NotificationPreferences {

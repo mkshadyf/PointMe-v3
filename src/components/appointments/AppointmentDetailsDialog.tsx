@@ -11,9 +11,11 @@ import {
   Chip,
   Divider,
   IconButton,
+  ChipProps,
 } from '@mui/material'
 import { format, parseISO } from 'date-fns'
 import { Appointment } from '../../types/appointment'
+import { AppointmentStatus } from '../../types/enums'
 import EditIcon from '@mui/icons-material/Edit'
 import EmailIcon from '@mui/icons-material/Email'
 import PhoneIcon from '@mui/icons-material/Phone'
@@ -26,26 +28,29 @@ interface AppointmentDetailsDialogProps {
   appointment: Appointment
   open: boolean
   onClose: () => void
+  businessId: string
 }
 
-const getStatusColor = (status: string) => {
-  switch (status.toLowerCase()) {
-    case 'confirmed':
+const getStatusColor = (status: AppointmentStatus): ChipProps['color'] => {
+  switch (status) {
+    case AppointmentStatus.CONFIRMED:
       return 'success'
-    case 'pending':
+    case AppointmentStatus.PENDING:
       return 'warning'
-    case 'cancelled':
+    case AppointmentStatus.CANCELLED:
       return 'error'
     default:
       return 'default'
   }
 }
 
-const DetailItem: React.FC<{
+interface DetailItemProps {
   icon: React.ReactNode
   label: string
   value: string | React.ReactNode
-}> = ({ icon, label, value }) => (
+}
+
+const DetailItem: React.FC<DetailItemProps> = ({ icon, label, value }) => (
   <Box display="flex" alignItems="center" mb={2}>
     <Box
       sx={{
@@ -70,11 +75,19 @@ const AppointmentDetailsDialog: React.FC<AppointmentDetailsDialogProps> = ({
   appointment,
   open,
   onClose,
+  businessId,
 }) => {
   const [isEditOpen, setIsEditOpen] = React.useState(false)
 
   const handleEdit = () => {
     setIsEditOpen(true)
+  }
+
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: appointment.currency || 'USD',
+    }).format(amount)
   }
 
   return (
@@ -100,7 +113,7 @@ const AppointmentDetailsDialog: React.FC<AppointmentDetailsDialogProps> = ({
               <Box mb={2}>
                 <Chip
                   label={appointment.status}
-                  color={getStatusColor(appointment.status) as any}
+                  color={getStatusColor(appointment.status)}
                 />
               </Box>
             </Grid>
@@ -135,13 +148,45 @@ const AppointmentDetailsDialog: React.FC<AppointmentDetailsDialogProps> = ({
                 Appointment Details
               </Typography>
               <Box mb={3}>
-                <Typography variant="subtitle1">Customer ID: {appointment.customerId}</Typography>
-                <Typography variant="subtitle1">Service: {appointment.service?.name}</Typography>
-                <Typography variant="subtitle1">Start Time: {format(parseISO(appointment.startTime), 'MMMM d, yyyy h:mm a')}</Typography>
-                <Typography variant="subtitle1">End Time: {format(parseISO(appointment.endTime), 'MMMM d, yyyy h:mm a')}</Typography>
-                <Typography variant="subtitle1">Status: {appointment.status}</Typography>
-                <Typography variant="subtitle1">Payment Status: {appointment.paymentStatus}</Typography>
-                <Typography variant="subtitle1">Payment Amount: ${appointment.paymentAmount}</Typography>
+                <DetailItem
+                  icon={<EventIcon />}
+                  label="Customer ID"
+                  value={appointment.customerId}
+                />
+                <DetailItem
+                  icon={<EventIcon />}
+                  label="Service"
+                  value={appointment.service?.name || 'N/A'}
+                />
+                <DetailItem
+                  icon={<AccessTimeIcon />}
+                  label="Start Time"
+                  value={format(parseISO(appointment.startTime), 'MMMM d, yyyy h:mm a')}
+                />
+                <DetailItem
+                  icon={<AccessTimeIcon />}
+                  label="End Time"
+                  value={format(parseISO(appointment.endTime), 'MMMM d, yyyy h:mm a')}
+                />
+                <DetailItem
+                  icon={<EventIcon />}
+                  label="Status"
+                  value={appointment.status}
+                />
+                {appointment.paymentStatus && (
+                  <DetailItem
+                    icon={<AttachMoneyIcon />}
+                    label="Payment Status"
+                    value={appointment.paymentStatus}
+                  />
+                )}
+                {appointment.paymentAmount && (
+                  <DetailItem
+                    icon={<AttachMoneyIcon />}
+                    label="Payment Amount"
+                    value={formatCurrency(appointment.paymentAmount)}
+                  />
+                )}
               </Box>
             </Grid>
 

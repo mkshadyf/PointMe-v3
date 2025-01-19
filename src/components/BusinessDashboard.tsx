@@ -9,41 +9,39 @@ import {
   Button,
   CircularProgress,
 } from '@mui/material'
-import { useQuery } from 'react-query'
-import { useAuthStore } from '../stores/authStore'
-import businessService from '../services/businessService'
+import useSWR from 'swr'
+import { useAuthStore } from '@/stores/authStore'
+import { businessService } from '@/services/businessService'
 import BusinessStats from './business/BusinessStats'
 import AppointmentsList from './business/AppointmentsList'
 import ServicesList from './business/ServicesList'
 import BusinessHours from './business/BusinessHours'
 
-const BusinessDashboard: React.FC = () => {
+const BusinessDashboard = () => {
   const navigate = useNavigate()
   const { user } = useAuthStore()
 
-  const {
-    data: business,
-    isLoading,
-    error,
-  } = useQuery(['business', user?.id], () => businessService.getBusinessByOwnerId(user!.id), {
-    enabled: !!user,
-    onError: () => {
-      // If there's an error or no business found, redirect to setup
-      navigate('/business/setup')
-    },
-  })
+  const { data: business, error } = useSWR(
+    user ? ['business', user.id] : null,
+    () => businessService.getBusiness(user!.id)
+  )
 
-  if (isLoading) {
+  if (error) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
-        <CircularProgress />
+      <Box textAlign="center" py={4}>
+        <Typography color="error">
+          Error loading business data
+        </Typography>
       </Box>
     )
   }
 
   if (!business) {
-    navigate('/business/setup')
-    return null
+    return (
+      <Box display="flex" justifyContent="center" p={3}>
+        <CircularProgress />
+      </Box>
+    )
   }
 
   return (
@@ -69,11 +67,11 @@ const BusinessDashboard: React.FC = () => {
           <BusinessStats businessId={business.id} />
         </Grid>
 
-        {/* Today's Appointments */}
+        {/* Recent Appointments */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
-              Today's Appointments
+              Recent Appointments
             </Typography>
             <AppointmentsList businessId={business.id} />
           </Paper>

@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Box,
   Container,
@@ -24,11 +24,11 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import appointmentService from '../../services/appointmentService'
-import { useAuthStore } from '../../stores/authStore'
+import useSWR, { useSWRConfig } from 'swr'
+import { appointmentService } from '@/services/appointmentService'
+import { useAuthStore } from '@/stores/authStore'
 import { format, parseISO, isFuture, isPast } from 'date-fns'
-import { useNotification } from '../../contexts/NotificationContext'
+import { useNotification } from '@/contexts/NotificationContext'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -45,36 +45,30 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
 const CustomerAppointments: React.FC = () => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
   const [tabValue, setTabValue] = React.useState(0)
   const [selectedAppointment, setSelectedAppointment] = React.useState<any>(null)
   const [cancelDialogOpen, setCancelDialogOpen] = React.useState(false)
 
-  const { data: appointments, isLoading } = useQuery(
-    ['customerAppointments', user?.id],
-    () => appointmentService.getCustomerAppointments(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: appointments, error: appointmentsError } = useSWR(
+    user ? ['appointments', user.id] : null,
+    () => appointmentService.getCustomerAppointments(user!.id)
   )
 
-  const cancelMutation = useMutation(
-    (appointmentId: string) =>
-      appointmentService.cancelAppointment(appointmentId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['customerAppointments', user?.id])
-        showNotification('Appointment cancelled successfully', 'success')
-        setCancelDialogOpen(false)
-      },
-      onError: () => {
-        showNotification(
-          'Failed to cancel appointment. Please try again.',
-          'error'
-        )
-      },
+  const handleCancelAppointment = async (appointmentId: string) => {
+    try {
+      await appointmentService.cancelAppointment(appointmentId)
+      mutate(['appointments', user!.id])
+      showNotification('Appointment cancelled successfully', 'success')
+      setCancelDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to cancel appointment:', error)
+      showNotification(
+        'Failed to cancel appointment. Please try again.',
+        'error'
+      )
     }
-  )
+  }
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue)
@@ -87,7 +81,7 @@ const CustomerAppointments: React.FC = () => {
 
   const handleConfirmCancel = () => {
     if (selectedAppointment) {
-      cancelMutation.mutate(selectedAppointment.id)
+      handleCancelAppointment(selectedAppointment.id)
     }
   }
 
@@ -212,7 +206,25 @@ const CustomerAppointments: React.FC = () => {
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
-          {isLoading ? (
+          {appointmentsError ? (
+            <Box
+              sx={{
+                textAlign: 'center',
+                py: 8,
+              }}
+            >
+              <Typography
+                variant="h6"
+                color="text.secondary"
+                gutterBottom
+              >
+                Error loading appointments
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Please try again later
+              </Typography>
+            </Box>
+          ) : !appointments ? (
             <Grid container spacing={3}>
               {Array.from(new Array(3)).map((_, index) => (
                 <Grid item xs={12} key={index}>
@@ -297,4 +309,3 @@ const CustomerAppointments: React.FC = () => {
 }
 
 export default CustomerAppointments
-

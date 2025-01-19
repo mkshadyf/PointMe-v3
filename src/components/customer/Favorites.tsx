@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Box,
   Container,
@@ -11,176 +11,100 @@ import {
   Chip,
   IconButton,
   Skeleton,
+  CircularProgress,
+  Button,
 } from '@mui/material'
 import {
   Favorite as FavoriteIcon,
   LocationOn as LocationIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
+import useSWR, { mutate } from 'swr'
 import favoriteService from '../../services/favoriteService'
-import businessService from '../../services/businessService'
+import { businessService } from '../../services/businessService'
 import { useAuthStore } from '../../stores/authStore'
-import { useNavigate } from 'react-router-dom'
+import { useRouter } from 'next/navigation'
 import { useNotification } from '../../contexts/NotificationContext'
+import Link from 'next/link'
 
-const Favorites: React.FC = () => {
+export default function Favorites() {
   const { user } = useAuthStore()
-  const navigate = useNavigate()
+  const router = useRouter()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
 
-  const { data: favorites, isLoading: favoritesLoading } = useQuery(
+  const { data: favorites, error } = useSWR(
     ['favorites', user?.id],
-    () => favoriteService.getFavoriteBusinesses(user!.id),
-    {
-      enabled: !!user,
-    }
+    () => favoriteService.getFavoriteBusinesses(user!.id)
   )
 
-  const removeFavoriteMutation = useMutation(
-    (businessId: string) =>
-      favoriteService.removeFavorite(user!.id, businessId),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['favorites', user?.id])
-        showNotification('Business removed from favorites', 'success')
-      },
-      onError: () => {
-        showNotification(
-          'Failed to remove business from favorites',
-          'error'
-        )
-      },
+  const handleRemoveFavorite = async (businessId: string) => {
+    try {
+      await favoriteService.removeFavorite(user!.id, businessId)
+      await mutate(['favorites', user?.id])
+      showNotification('Business removed from favorites', 'success')
+    } catch (error) {
+      console.error('Failed to remove favorite:', error)
+      showNotification('Failed to remove business from favorites', 'error')
     }
-  )
-
-  const handleRemoveFavorite = (
-    e: React.MouseEvent,
-    businessId: string
-  ) => {
-    e.stopPropagation()
-    removeFavoriteMutation.mutate(businessId)
   }
 
-  const handleBusinessClick = (businessId: string) => {
-    navigate(`/business/${businessId}`)
+  const handleViewBusiness = (businessId: string) => {
+    router.push(`/business/${businessId}`)
   }
-
-  const BusinessCard: React.FC<{ business: any }> = ({ business }) => (
-    <Card
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'pointer',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          transition: 'transform 0.2s ease-in-out',
-        },
-      }}
-      onClick={() => handleBusinessClick(business.id)}
-    >
-      <CardMedia
-        component="img"
-        height="200"
-        image={business.coverImage || '/placeholder.jpg'}
-        alt={business.name}
-      />
-      <CardContent sx={{ flexGrow: 1 }}>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="flex-start"
-        >
-          <Typography variant="h6" gutterBottom>
-            {business.name}
-          </Typography>
-          <IconButton
-            onClick={(e) => handleRemoveFavorite(e, business.id)}
-            sx={{ color: 'error.main' }}
-          >
-            <FavoriteIcon />
-          </IconButton>
-        </Box>
-
-        <Box display="flex" alignItems="center" mb={1}>
-          <Rating value={business.rating} readOnly size="small" />
-          <Typography variant="body2" color="text.secondary" ml={1}>
-            ({business.reviewCount})
-          </Typography>
-        </Box>
-
-        <Box display="flex" alignItems="center" mb={1}>
-          <LocationIcon
-            fontSize="small"
-            sx={{ color: 'text.secondary', mr: 0.5 }}
-          />
-          <Typography variant="body2" color="text.secondary">
-            {business.location}
-          </Typography>
-        </Box>
-
-        <Box display="flex" flexWrap="wrap" gap={0.5}>
-          {business.categories.map((category: string) => (
-            <Chip
-              key={category}
-              label={category}
-              size="small"
-              sx={{ backgroundColor: 'primary.light' }}
-            />
-          ))}
-        </Box>
-      </CardContent>
-    </Card>
-  )
 
   if (!user) {
     return (
-      <Container maxWidth="lg">
-        <Box
-          sx={{
-            textAlign: 'center',
-            py: 8,
-          }}
+      <Box
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        justifyContent="center"
+        minHeight="60vh"
+      >
+        <Typography variant="h6" color="textSecondary" gutterBottom>
+          Please sign in to view your favorites
+        </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          component={Link}
+          href="/signin"
         >
-          <Typography variant="h6" color="text.secondary" gutterBottom>
-            Please sign in to view your favorites
-          </Typography>
-        </Box>
-      </Container>
+          Sign In
+        </Button>
+      </Box>
     )
   }
+
+  const isLoading = !favorites && !error
 
   return (
     <Container maxWidth="lg">
       <Box sx={{ my: 4 }}>
-        <Typography variant="h4" gutterBottom>
+        <Typography variant="h4" component="h1" gutterBottom>
           My Favorites
         </Typography>
 
-        {favoritesLoading ? (
-          <Grid container spacing={3}>
-            {Array.from(new Array(6)).map((_, index) => (
-              <Grid item xs={12} sm={6} md={4} key={index}>
-                <Skeleton
-                  variant="rectangular"
-                  height={300}
-                  sx={{ borderRadius: 1 }}
-                />
-              </Grid>
-            ))}
-          </Grid>
+        {isLoading ? (
+          <Box
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
+            minHeight="400px"
+          >
+            <CircularProgress />
+          </Box>
         ) : favorites?.length === 0 ? (
           <Box
-            sx={{
-              textAlign: 'center',
-              py: 8,
-            }}
+            display="flex"
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            minHeight="400px"
           >
-            <Typography variant="h6" color="text.secondary" gutterBottom>
+            <Typography variant="h6" color="textSecondary" gutterBottom>
               No favorites yet
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body1" color="textSecondary" gutterBottom>
               Start exploring businesses and add them to your favorites
             </Typography>
           </Box>
@@ -188,7 +112,11 @@ const Favorites: React.FC = () => {
           <Grid container spacing={3}>
             {favorites?.map((business) => (
               <Grid item xs={12} sm={6} md={4} key={business.id}>
-                <BusinessCard business={business} />
+                <BusinessCard
+                  business={business}
+                  onViewBusiness={() => handleViewBusiness(business.id)}
+                  onRemoveFavorite={() => handleRemoveFavorite(business.id)}
+                />
               </Grid>
             ))}
           </Grid>
@@ -198,5 +126,79 @@ const Favorites: React.FC = () => {
   )
 }
 
-export default Favorites
+const BusinessCard: React.FC<{
+  business: any;
+  onViewBusiness: () => void;
+  onRemoveFavorite: () => void;
+}> = ({ business, onViewBusiness, onRemoveFavorite }) => (
+  <Card
+    sx={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      cursor: 'pointer',
+      '&:hover': {
+        transform: 'translateY(-4px)',
+        transition: 'transform 0.2s ease-in-out',
+      },
+    }}
+    onClick={onViewBusiness}
+  >
+    <CardMedia
+      component="img"
+      height="200"
+      image={business.coverImage || '/placeholder.jpg'}
+      alt={business.name}
+    />
+    <CardContent sx={{ flexGrow: 1 }}>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="flex-start"
+      >
+        <Typography variant="h6" gutterBottom>
+          {business.name}
+        </Typography>
+        <IconButton onClick={onRemoveFavorite} sx={{ color: 'error.main' }}>
+          <FavoriteIcon />
+        </IconButton>
+      </Box>
 
+      <Box display="flex" alignItems="center" mb={1}>
+        <Rating value={business.rating} readOnly size="small" />
+        <Typography variant="body2" color="text.secondary" ml={1}>
+          ({business.reviewCount})
+        </Typography>
+      </Box>
+
+      <Box display="flex" alignItems="center" mb={1}>
+        <LocationIcon
+          fontSize="small"
+          sx={{ color: 'text.secondary', mr: 0.5 }}
+        />
+        <Typography variant="body2" color="text.secondary">
+          {business.location}
+        </Typography>
+      </Box>
+
+      <Box display="flex" flexWrap="wrap" gap={0.5}>
+        {business.categories.map((category: string) => (
+          <Chip
+            key={category}
+            label={category}
+            size="small"
+            sx={{ backgroundColor: 'primary.light' }}
+          />
+        ))}
+      </Box>
+      <Button
+        component={Link}
+        href={`/business/${business.id}`}
+        variant="contained"
+        color="primary"
+      >
+        View Business
+      </Button>
+    </CardContent>
+  </Card>
+)

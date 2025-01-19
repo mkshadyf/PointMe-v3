@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
+import useSWR, { mutate } from 'swr'
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
-import { trpc } from '../utils/trpc'
-import { CreateBookingInput } from '../types/booking'
 import PaymentForm from './PaymentForm'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -22,17 +22,18 @@ const BookingManagement: React.FC = () => {
   })
   const [selectedBooking, setSelectedBooking] = useState<{ id: string; amount: number } | null>(null)
 
-  const createBookingMutation = trpc.business.createBooking.useMutation()
-  const userBookingsQuery = trpc.business.getUserBookings.useQuery()
+  const { data: bookings, error } = useSWR(
+    createTrpcKey(['business', 'bookings', 'getUserBookings']),
+    createTrpcFetcher(['business', 'bookings', 'getUserBookings'])
+  )
+
+  const createBookingMutation = createTrpcMutation(['business', 'bookings', 'create'])
 
   const onSubmit = async (data: CreateBookingInput) => {
     try {
-      await createBookingMutation.mutateAsync({
-        ...data,
-        startTime: new Date(data.startTime),
-      })
+      await createBookingMutation({ ...data, startTime: new Date(data.startTime) })
       reset()
-      userBookingsQuery.refetch()
+      await mutate(createTrpcKey(['business', 'bookings', 'getUserBookings']))
     } catch (error) {
       console.error('Failed to create booking:', error)
     }
@@ -40,7 +41,7 @@ const BookingManagement: React.FC = () => {
 
   const handlePaymentSuccess = () => {
     setSelectedBooking(null)
-    userBookingsQuery.refetch()
+    mutate(createTrpcKey(['business', 'bookings', 'getUserBookings']))
   }
 
   return (
@@ -94,13 +95,13 @@ const BookingManagement: React.FC = () => {
       <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
         Your Bookings
       </Typography>
-      {userBookingsQuery.isLoading ? (
-        <Typography>Loading bookings...</Typography>
-      ) : userBookingsQuery.isError ? (
+      {error ? (
         <Typography color="error">Error loading bookings</Typography>
+      ) : !bookings ? (
+        <Typography>Loading bookings...</Typography>
       ) : (
         <List>
-          {userBookingsQuery.data?.map((booking) => (
+          {bookings.map((booking) => (
             <ListItem key={booking.id}>
               <ListItemText
                 primary={`${booking.service.name} - ${booking.status}`}
@@ -138,4 +139,3 @@ const BookingManagement: React.FC = () => {
 }
 
 export default BookingManagement
-

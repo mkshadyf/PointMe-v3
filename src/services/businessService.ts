@@ -1,145 +1,218 @@
-import { supabase } from '../lib/supabase'
-import { Business, CreateBusinessInput, UpdateBusinessInput } from '../types/business'
+import { Business, CreateBusinessInput, UpdateBusinessInput, WorkingHours, NotificationSettings, PaymentSettings } from '@/types/business';
+import { createClient } from '@/lib/supabase';
 
-const businessService = {
-  async getBusinesses(): Promise<Business[]> {
-    const { data, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .order('name')
+const supabase = createClient();
 
-    if (error) throw error
-    return data
-  },
-
-  async getBusinessById(id: string): Promise<Business> {
+export const businessService = {
+  getBusiness: async (id: string): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
       .select('*')
       .eq('id', id)
-      .single()
-
-    if (error) throw error
-    return data
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
-  async getBusinessByOwnerId(ownerId: string): Promise<Business | null> {
+  getBusinessByUserId: async (userId: string): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
       .select('*')
-      .eq('owner_id', ownerId)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') return null // No rows found
-      throw error
-    }
-    return data
+      .eq('userId', userId)
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
-  async createBusiness(input: CreateBusinessInput, ownerId: string): Promise<Business> {
+  getBusinessProfile: async (businessId: string): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
-      .insert([{
-        ...input,
-        owner_id: ownerId
-      }])
-      .select()
-      .single()
-
-    if (error) throw error
-    return data
+      .select('*, categories(*)')
+      .eq('id', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
-  async updateBusiness(id: string, input: UpdateBusinessInput): Promise<Business> {
+  //getBusinessStats
+  getBusinessStats: async (businessId: string) => {
+    const { data, error } = await supabase
+      .from('business_stats')
+      .select('*')
+      .eq('businessId', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  updateBusiness: async (id: string, input: UpdateBusinessInput): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
       .update(input)
       .eq('id', id)
       .select()
-      .single()
-
-    if (error) throw error
-    return data
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
+updateBusinessProfile: async (businessId: string, input: Partial<Business>): Promise<Business> => {
+  const { data, error } = await supabase
+    .from('businesses')
+    .update(input)
+    .eq('id', businessId)
+    .select()
+    .single();
 
-  async deleteBusiness(id: string): Promise<void> {
-    const { error } = await supabase
-      .from('businesses')
-      .delete()
-      .eq('id', id)
+  if (error) throw error;
+  return data;
+},
 
-    if (error) throw error
-  },
-
-  async getWorkingHours(businessId: string): Promise<Business['workingHours']> {
+  createBusiness: async (input: CreateBusinessInput): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
-      .select('working_hours')
-      .eq('id', businessId)
-      .single()
-
-    if (error) throw error
-    return data.working_hours
+      .insert(input)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
-  async updateWorkingHours(businessId: string, workingHours: Business['workingHours']): Promise<void> {
+  updateBusinessCategory: async (businessId: string, categoryId: string): Promise<void> => {
     const { error } = await supabase
       .from('businesses')
-      .update({ working_hours: workingHours })
-      .eq('id', businessId)
-
-    if (error) throw error
+      .update({ categoryId })
+      .eq('id', businessId);
+    
+    if (error) throw error;
   },
 
-  async getPaymentSettings(businessId: string): Promise<Business['paymentSettings']> {
+  updateBusinessServices: async (businessId: string, services: any[]): Promise<void> => {
+    const { error } = await supabase
+      .from('services')
+      .upsert(services.map(service => ({ ...service, businessId })));
+    
+    if (error) throw error;
+  },
+
+
+  updateBusinessImage: async (businessId: string, imageData: { logoUrl?: string; coverUrl?: string }): Promise<Business> => {
     const { data, error } = await supabase
       .from('businesses')
-      .select('payment_settings')
+      .update(imageData)
       .eq('id', businessId)
-      .single()
-
-    if (error) throw error
-    return data.payment_settings
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
-
-  async updatePaymentSettings(businessId: string, settings: Business['paymentSettings']): Promise<void> {
-    const { error } = await supabase
-      .from('businesses')
-      .update({ payment_settings: settings })
-      .eq('id', businessId)
-
-    if (error) throw error
-  },
-
-  async getNotificationSettings(businessId: string): Promise<Business['notificationSettings']> {
+  
+  getBusinessServices: async (businessId: string) => {
     const { data, error } = await supabase
-      .from('businesses')
-      .select('notification_settings')
-      .eq('id', businessId)
-      .single()
-
-    if (error) throw error
-    return data.notification_settings
+      .from('services')
+      .select('*')
+      .eq('businessId', businessId);
+    
+    if (error) throw error;
+    return data;
+  },
+  
+  getBusinessStaff: async (businessId: string) => {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('businessId', businessId);
+    
+    if (error) throw error;
+    return data;
   },
 
-  async updateNotificationSettings(businessId: string, settings: Business['notificationSettings']): Promise<void> {
+  getBusinessSettings: async (businessId: string) => {
+    const { data, error } = await supabase
+      .from('business_settings')
+      .select('*')
+      .eq('businessId', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  getWorkingHours: async (businessId: string): Promise<WorkingHours> => {
+    const { data, error } = await supabase
+      .from('working_hours')
+      .select('*')
+      .eq('businessId', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  updateWorkingHours: async (businessId: string, workingHours: WorkingHours): Promise<void> => {
     const { error } = await supabase
-      .from('businesses')
-      .update({ notification_settings: settings })
-      .eq('id', businessId)
-
-    if (error) throw error
+      .from('working_hours')
+      .upsert({ ...workingHours, businessId });
+    
+    if (error) throw error;
   },
 
-  async searchBusinesses(query: string, filters?: { category?: string }): Promise<Business[]> {
+  getNotificationSettings: async (businessId: string): Promise<NotificationSettings> => {
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .eq('businessId', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  updateNotificationSettings: async (businessId: string, settings: NotificationSettings): Promise<void> => {
+    const { error } = await supabase
+      .from('notification_settings')
+      .upsert({ ...settings, businessId });
+    
+    if (error) throw error;
+  },
+
+  getPaymentSettings: async (businessId: string): Promise<PaymentSettings> => {
+    const { data, error } = await supabase
+      .from('payment_settings')
+      .select('*')
+      .eq('businessId', businessId)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  updatePaymentSettings: async (businessId: string, settings: PaymentSettings): Promise<void> => {
+    const { error } = await supabase
+      .from('payment_settings')
+      .upsert({ ...settings, businessId });
+    
+    if (error) throw error;
+  },
+
+  searchBusinesses: async (query: string, filters?: any) => {
     let queryBuilder = supabase
       .from('businesses')
       .select('*')
-      .ilike('name', `%${query}%`);
+      .textSearch('name', query);
 
     if (filters?.category) {
-      queryBuilder = queryBuilder.eq('category', filters.category);
+      queryBuilder = queryBuilder.eq('categoryId', filters.category);
+    }
+
+    if (filters?.location) {
+      // Add location-based filtering logic here
     }
 
     const { data, error } = await queryBuilder;
@@ -147,15 +220,12 @@ const businessService = {
     return data;
   },
 
-  async getCategories(): Promise<string[]> {
+  getCategories: async () => {
     const { data, error } = await supabase
-      .from('business_categories')
-      .select('name')
-      .order('name');
-
+      .from('categories')
+      .select('*');
+    
     if (error) throw error;
-    return data.map(category => category.name);
+    return data;
   }
-}
-
-export default businessService
+};

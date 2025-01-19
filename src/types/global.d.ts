@@ -40,32 +40,44 @@ declare module 'notistack' {
   }
 }
 
-declare module '@tanstack/react-query' {
-  export interface UseQueryOptions<
-    TQueryFnData = unknown,
-    TError = unknown,
-    TData = TQueryFnData,
-    TQueryKey extends QueryKey = QueryKey,
-  > {
-    queryKey: TQueryKey;
-    queryFn: QueryFunction<TQueryFnData, TQueryKey>;
-    enabled?: boolean;
-    retry?: boolean | number | ((failureCount: number, error: TError) => boolean);
-    retryDelay?: (retryAttempt: number) => number;
-    staleTime?: number;
-    cacheTime?: number;
-    refetchInterval?: number | false;
-    refetchIntervalInBackground?: boolean;
-    refetchOnWindowFocus?: boolean;
-    refetchOnReconnect?: boolean;
-    notifyOnChangeProps?: Array<keyof InfiniteQueryObserverResult>;
-    onSuccess?: (data: TData) => void;
-    onError?: (error: TError) => void;
-    onSettled?: (data: TData | undefined, error: TError | null) => void;
-    select?: (data: TQueryFnData) => TData;
-    suspense?: boolean;
-    keepPreviousData?: boolean;
-    placeholderData?: TQueryFnData | (() => TQueryFnData);
+import { SWRResponse } from 'swr'
+
+// Use SWR types directly
+export type UseQueryResponse<T> = SWRResponse<T>
+
+// Add type for mutation function
+export type MutationFunction<TData = any, TResult = any> = (data: TData) => Promise<TResult>
+
+// Add type for mutation result
+export type MutationResult<TData = any, TResult = any> = {
+  mutate: (data: TData) => Promise<TResult>
+  isLoading: boolean
+  error: Error | null
+}
+
+export interface SWROptions<T> {
+  revalidateOnFocus?: boolean
+  revalidateOnReconnect?: boolean
+  refreshInterval?: number
+  shouldRetryOnError?: boolean
+  dedupingInterval?: number
+  focusThrottleInterval?: number
+  loadingTimeout?: number
+  errorRetryInterval?: number
+  errorRetryCount?: number
+  onSuccess?: (data: T) => void
+  onError?: (err: Error) => void
+  onLoadingSlow?: (key: string, config: SWROptions<T>) => void
+  onErrorRetry?: (err: Error, key: string, config: SWROptions<T>, revalidate: () => Promise<boolean>, { retryCount: number }) => void
+}
+
+declare module 'swr' {
+  interface SWRConfiguration {
+    suspense?: boolean
+    revalidateOnFocus?: boolean
+    revalidateOnReconnect?: boolean
+    refreshInterval?: number
+    shouldRetryOnError?: boolean
   }
 }
 

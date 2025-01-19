@@ -9,11 +9,11 @@ import {
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import GeneralSettings from '../../components/admin/settings/GeneralSettings';
-import SecuritySettings from '../../components/admin/settings/SecuritySettings';
-import EmailSettings from '../../components/admin/settings/EmailSettings';
-import PaymentSettings from '../../components/admin/settings/PaymentSettings';
-import IntegrationSettings from '../../components/admin/settings/IntegrationSettings';
+import GeneralSettings from '@/components/admin/settings/GeneralSettings';
+import SecuritySettings from '@/components/admin/settings/SecuritySettings';
+import EmailSettings from '@/components/admin/settings/EmailSettings';
+import PaymentSettings from '@/components/admin/settings/PaymentSettings';
+import IntegrationSettings from '@/components/admin/settings/IntegrationSettings';
 
 interface TabPanelProps {
   children?: React.ReactNode;

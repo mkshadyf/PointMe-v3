@@ -13,9 +13,10 @@ import {
   FormHelperText,
   IconButton,
 } from '@mui/material';
-import { useQuery, useMutation, useQueryClient } from 'react-query';
-import businessService from '../../../services/businessService'; 
-import { WorkingHours, DayOfWeek, DaySchedule, TimeSlot } from '../../../types/business';
+import useSWR, { useSWRConfig } from 'swr';
+import { businessService } from '@/services/businessService';
+import type { Business } from '@/types/business';
+import { WorkingHours, DayOfWeek, DaySchedule, TimeSlot } from '@/types/business';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 
@@ -24,13 +25,13 @@ interface BusinessHoursSettingsProps {
 }
 
 const DAYS_OF_WEEK: DayOfWeek[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  DayOfWeek.MONDAY,
+  DayOfWeek.TUESDAY,
+  DayOfWeek.WEDNESDAY,
+  DayOfWeek.THURSDAY,
+  DayOfWeek.FRIDAY,
+  DayOfWeek.SATURDAY,
+  DayOfWeek.SUNDAY,
 ];
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -40,25 +41,17 @@ const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
 });
 
 const BusinessHoursSettings: React.FC<BusinessHoursSettingsProps> = ({ businessId }) => {
-  const queryClient = useQueryClient();
+  const { mutate } = useSWRConfig();
 
-  const { data: workingHours, isLoading } = useQuery(
+  const { data: workingHours, error, isLoading } = useSWR(
     ['workingHours', businessId],
     () => businessService.getWorkingHours(businessId)
   );
 
-  const updateWorkingHoursMutation = useMutation(
-    (hours: Business['workingHours']) => businessService.updateWorkingHours(businessId, hours),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['workingHours', businessId]);
-      },
-    }
-  );
-
-  const handleUpdateWorkingHours = async (updatedHours: Business['workingHours']) => {
+  const handleUpdateHours = async (updatedHours: WorkingHours) => {
     try {
-      await updateWorkingHoursMutation.mutateAsync(updatedHours);
+      await businessService.updateWorkingHours(businessId, updatedHours);
+      mutate(['workingHours', businessId]);
     } catch (error) {
       console.error('Failed to update working hours:', error);
     }
@@ -66,6 +59,7 @@ const BusinessHoursSettings: React.FC<BusinessHoursSettingsProps> = ({ businessI
 
   const getInitialWorkingHours = (): WorkingHours => {
     return DAYS_OF_WEEK.reduce((acc, day) => ({
+
       ...acc,
       [day]: {
         isOpen: false,
@@ -130,11 +124,15 @@ const BusinessHoursSettings: React.FC<BusinessHoursSettingsProps> = ({ businessI
   };
 
   const handleSave = () => {
-    handleUpdateWorkingHours(workingHoursState);
+    handleUpdateHours(workingHoursState);
   };
 
   if (isLoading) {
     return <Typography>Loading...</Typography>;
+  }
+
+  if (error) {
+    return <Typography>Error: {error.message}</Typography>;
   }
 
   return (

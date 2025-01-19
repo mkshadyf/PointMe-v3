@@ -1,15 +1,31 @@
 import React from 'react'
+import useSWR, { mutate } from 'swr'
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import { Box, Typography } from '@mui/material'
-import { trpc } from '../utils/trpc'
 
-const BookingCalendar: React.FC = () => {
-  const userBookingsQuery = trpc.business.getUserBookings.useQuery()
+interface BookingCalendarProps {
+  businessId: string
+}
 
-  const events = userBookingsQuery.data?.map(booking => ({
+interface CreateBookingInput {
+  // Add properties for CreateBookingInput
+}
+
+interface BookingSlot {
+  // Add properties for BookingSlot
+}
+
+const BookingCalendar: React.FC<BookingCalendarProps> = ({ businessId }) => {
+  const { data: existingBookings, error: bookingsError } = useSWR(
+    createTrpcKey(['business', 'bookings', 'getBusinessBookings'], businessId),
+    createTrpcFetcher(['business', 'bookings', 'getBusinessBookings'], businessId)
+  )
+
+  const events = existingBookings?.map(booking => ({
     id: booking.id,
     title: booking.service.name,
     start: booking.startTime,
@@ -44,4 +60,3 @@ const BookingCalendar: React.FC = () => {
 }
 
 export default BookingCalendar
-

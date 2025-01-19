@@ -14,8 +14,9 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
-import { useQuery } from 'react-query'
-
+import useSWR from 'swr'
+import { businessService } from '@/services/businessService'
+  
 interface Service {
   id: string
   name: string
@@ -118,30 +119,9 @@ const ServiceCard: React.FC<{
 }
 
 const ServicesList: React.FC<ServicesListProps> = ({ businessId }) => {
-  // TODO: Replace with actual API call
-  const { data: services, isLoading } = useQuery<Service[]>(
+  const { data: services, error, isLoading } = useSWR(
     ['services', businessId],
-    async () => {
-      // Simulated API call
-      return [
-        {
-          id: '1',
-          name: 'Basic Haircut',
-          description: 'A classic haircut service including washing and styling.',
-          duration: 30,
-          price: 25.00,
-          isActive: true,
-        },
-        {
-          id: '2',
-          name: 'Premium Styling',
-          description: 'Complete hair styling service with premium products.',
-          duration: 60,
-          price: 50.00,
-          isActive: true,
-        },
-      ]
-    }
+    () => businessService.getBusinessServices(businessId)
   )
 
   const handleEditService = (service: Service) => {

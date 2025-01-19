@@ -1,112 +1,121 @@
-import React from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { TextField, Button, Box, Typography, Divider, CircularProgress } from '@mui/material'
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useAuthStore } from '../stores/authStore'
-import { useNavigate } from 'react-router-dom'
-import GoogleIcon from '@mui/icons-material/Google'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { useToast } from '@/hooks/useToast'
+import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
 })
 
 type LoginFormData = z.infer<typeof loginSchema>
 
 const LoginForm: React.FC = () => {
-  const navigate = useNavigate()
-  const { control, handleSubmit, formState: { isSubmitting } } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  })
-  
-  const { login, loginWithGoogle, loading, error, clearError, isAuthenticated } = useAuthStore()
+  const { toast } = useToast()
+  const router = useRouter()
+  const [isLoading, setIsLoading] = useState(false)
 
-  React.useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard')
-    }
-  }, [isAuthenticated, navigate])
+  const form = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+  })
 
   const onSubmit = async (data: LoginFormData) => {
-    clearError()
-    await login(data.email, data.password)
-  }
+    try {
+      setIsLoading(true)
+      const { error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      })
 
-  const handleGoogleLogin = async () => {
-    clearError()
-    await loginWithGoogle()
+      if (error) {
+        throw error
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Successfully logged in.',
+      })
+
+      router.push('/dashboard')
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Invalid email or password.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
-      <Controller
-        name="email"
-        control={control}
-        defaultValue=""
-        render={({ field, fieldState: { error } }) => (
-          <TextField
-            {...field}
-            margin="normal"
-            required
-            fullWidth
-            id="email"
-            label="Email Address"
-            autoComplete="email"
-            autoFocus
-            error={!!error}
-            helperText={error?.message}
-          />
-        )}
-      />
-      <Controller
-        name="password"
-        control={control}
-        defaultValue=""
-        render={({ field, fieldState: { error } }) => (
-          <TextField
-            {...field}
-            margin="normal"
-            required
-            fullWidth
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-            error={!!error}
-            helperText={error?.message}
-          />
-        )}
-      />
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <Input {...field} type="email" placeholder="Enter your email" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
-      {error && (
-        <Typography color="error" variant="body2" sx={{ mt: 2 }}>
-          {error}
-        </Typography>
-      )}
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input {...field} type="password" placeholder="Enter your password" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
-      <Button
-        type="submit"
-        fullWidth
-        variant="contained"
-        sx={{ mt: 3, mb: 2 }}
-        disabled={loading}
-      >
-        {loading ? <CircularProgress size={24} /> : 'Sign In'}
-      </Button>
+        <div className="flex flex-col gap-4">
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isLoading}
+          >
+            {isLoading ? 'Logging in...' : 'Login'}
+          </Button>
 
-      <Divider sx={{ my: 2 }}>OR</Divider>
-
-      <Button
-        fullWidth
-        variant="outlined"
-        startIcon={<GoogleIcon />}
-        onClick={handleGoogleLogin}
-        disabled={loading}
-        sx={{ mb: 2 }}
-      >
-        Sign in with Google
-      </Button>
-    </Box>
+          <div className="flex items-center justify-between">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-muted-foreground hover:text-primary"
+            >
+              Forgot password?
+            </Link>
+            <Link
+              href="/signup"
+              className="text-sm text-muted-foreground hover:text-primary"
+            >
+              Create account
+            </Link>
+          </div>
+        </div>
+      </form>
+    </Form>
   )
 }
 

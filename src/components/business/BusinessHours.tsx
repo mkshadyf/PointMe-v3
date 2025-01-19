@@ -8,18 +8,14 @@ import {
   CircularProgress,
   Button,
   Chip,
+  Alert,
 } from '@mui/material'
-import { useQuery } from 'react-query'
-
-interface BusinessHour {
-  day: string
-  isOpen: boolean
-  openTime?: string
-  closeTime?: string
-}
+import useSWR from 'swr'
+import { businessService } from '@/services/businessService'
+import { WorkingHours } from '@/types/business'
 
 interface BusinessHoursProps {
-  businessId: string
+  businessId: string;
 }
 
 const DAYS = [
@@ -30,21 +26,21 @@ const DAYS = [
   'Friday',
   'Saturday',
   'Sunday',
-]
+] as const;
 
-const BusinessHours: React.FC<BusinessHoursProps> = ({ businessId }) => {
-  // TODO: Replace with actual API call
-  const { data: hours, isLoading } = useQuery<BusinessHour[]>(
-    ['businessHours', businessId],
-    async () => {
-      // Simulated API call
-      return DAYS.map((day) => ({
-        day,
-        isOpen: !['Saturday', 'Sunday'].includes(day),
-        openTime: !['Saturday', 'Sunday'].includes(day) ? '09:00' : undefined,
-        closeTime: !['Saturday', 'Sunday'].includes(day) ? '17:00' : undefined,
-      }))
-    }
+type DayOfWeek = typeof DAYS[number];
+
+interface DaySchedule {
+  day: DayOfWeek;
+  isOpen: boolean;
+  openTime: string | null;
+  closeTime: string | null;
+}
+
+export default function BusinessHours({ businessId }: BusinessHoursProps) {
+  const { data: workingHours, error, isLoading } = useSWR<WorkingHours>(
+    businessId ? ['workingHours', businessId] : null,
+    () => businessService.getWorkingHours(businessId)
   )
 
   if (isLoading) {
@@ -55,47 +51,57 @@ const BusinessHours: React.FC<BusinessHoursProps> = ({ businessId }) => {
     )
   }
 
+  if (error) {
+    return (
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Failed to load business hours. Please try again later.
+      </Alert>
+    )
+  }
+
+  if (!workingHours) {
+    return null
+  }
+
+  const schedule: DaySchedule[] = DAYS.map(day => ({
+    day,
+    isOpen: workingHours[day.toLowerCase()]?.isOpen ?? false,
+    openTime: workingHours[day.toLowerCase()]?.openTime ?? null,
+    closeTime: workingHours[day.toLowerCase()]?.closeTime ?? null,
+  }))
+
   return (
-    <>
-      <List disablePadding>
-        {hours?.map((hour) => (
-          <ListItem
-            key={hour.day}
-            sx={{
-              borderBottom: '1px solid',
-              borderColor: 'divider',
-              '&:last-child': {
-                borderBottom: 'none',
-              },
-            }}
-          >
-            <ListItemText
-              primary={hour.day}
-              secondary={
-                hour.isOpen ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {hour.openTime} - {hour.closeTime}
-                  </Typography>
-                ) : (
-                  <Chip
-                    label="Closed"
-                    size="small"
-                    color="default"
-                    sx={{ mt: 0.5 }}
-                  />
-                )
-              }
-            />
-          </ListItem>
-        ))}
-      </List>
-      <Box textAlign="center" mt={2}>
-        <Button variant="outlined" size="small">
-          Edit Hours
-        </Button>
-      </Box>
-    </>
+    <List disablePadding>
+      {schedule.map(({ day, isOpen, openTime, closeTime }) => (
+        <ListItem
+          key={day}
+          sx={{
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            '&:last-child': {
+              borderBottom: 'none',
+            },
+          }}
+        >
+          <ListItemText
+            primary={day}
+            secondary={
+              isOpen && openTime && closeTime ? (
+                <Typography variant="body2" color="text.secondary">
+                  {openTime} - {closeTime}
+                </Typography>
+              ) : (
+                <Chip
+                  label="Closed"
+                  size="small"
+                  color="default"
+                  sx={{ mt: 0.5 }}
+                />
+              )
+            }
+          />
+        </ListItem>
+      ))}
+    </List>
   )
 }
-
-export default BusinessHours

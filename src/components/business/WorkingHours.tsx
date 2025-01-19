@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React, { useState } from 'react'
 import {
   Box,
   Container,
@@ -27,26 +27,35 @@ import {
 import { useForm, Controller, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import businessService from '../../services/businessService'
-import { useAuthStore } from '../../stores/authStore'
-import { useNotification } from '../../contexts/NotificationContext'
+import useSWR, { mutate } from 'swr'
+import { businessService } from '@/services/businessService'
+import { useAuthStore } from '@/stores/authStore'
+import { useNotification } from '@/contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
+import { DayOfWeek } from '@/types/business'
 
 const timeSlotSchema = z.object({
-  start: z.string(),
-  end: z.string(),
-})
+  start: z.string().min(1, 'Start time is required'),
+  end: z.string().min(1, 'End time is required'),
+}).refine(data => {
+  const start = new Date(`1970-01-01T${data.start}`)
+  const end = new Date(`1970-01-01T${data.end}`)
+  return end > start
+}, { message: 'End time must be after start time' })
 
 const breakSchema = z.object({
-  start: z.string(),
-  end: z.string(),
+  start: z.string().min(1, 'Start time is required'),
+  end: z.string().min(1, 'End time is required'),
   description: z.string().optional(),
-})
+}).refine(data => {
+  const start = new Date(`1970-01-01T${data.start}`)
+  const end = new Date(`1970-01-01T${data.end}`)
+  return end > start
+}, { message: 'Break end time must be after start time' })
 
 const dayScheduleSchema = z.object({
   isOpen: z.boolean(),
-  timeSlots: z.array(timeSlotSchema),
+  timeSlots: z.array(timeSlotSchema).min(1, 'At least one time slot is required'),
   breaks: z.array(breakSchema).optional(),
 })
 
@@ -60,20 +69,27 @@ const workingHoursSchema = z.object({
   sunday: dayScheduleSchema,
   holidays: z.array(
     z.object({
-      date: z.string(),
+      date: z.string().min(1, 'Date is required'),
       description: z.string().optional(),
     })
   ),
   specialHours: z.array(
     z.object({
-      date: z.string(),
-      timeSlots: z.array(timeSlotSchema),
+      date: z.string().min(1, 'Date is required'),
+      timeSlots: z.array(timeSlotSchema).min(1, 'At least one time slot is required'),
       description: z.string().optional(),
     })
   ),
 })
 
 type WorkingHoursFormData = z.infer<typeof workingHoursSchema>
+
+interface WorkingHoursProps {
+  businessId: string;
+  workingHours: WorkingHoursFormData;
+  onSave: (workingHours: WorkingHoursFormData) => Promise<void>;
+  isLoading?: boolean;
+}
 
 const defaultTimeSlot = {
   start: '09:00',
@@ -86,42 +102,47 @@ const defaultDaySchedule = {
   breaks: [],
 }
 
-const WorkingHours: React.FC = () => {
+const defaultWorkingHours: WorkingHoursFormData = {
+  monday: defaultDaySchedule,
+  tuesday: defaultDaySchedule,
+  wednesday: defaultDaySchedule,
+  thursday: defaultDaySchedule,
+  friday: defaultDaySchedule,
+  saturday: defaultDaySchedule,
+  sunday: defaultDaySchedule,
+  holidays: [],
+  specialHours: []
+}
+
+export default function WorkingHours({ 
+  businessId, 
+  workingHours = defaultWorkingHours,
+  onSave,
+  isLoading = false 
+}: WorkingHoursProps) {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
-  const [selectedDay, setSelectedDay] = React.useState<string | null>(null)
-  const [breakDialogOpen, setBreakDialogOpen] = React.useState(false)
-  const [holidayDialogOpen, setHolidayDialogOpen] = React.useState(false)
-  const [specialHoursDialogOpen, setSpecialHoursDialogOpen] = React.useState(false)
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek | null>(null)
+  const [breakDialogOpen, setBreakDialogOpen] = useState(false)
+  const [holidayDialogOpen, setHolidayDialogOpen] = useState(false)
+  const [specialHoursDialogOpen, setSpecialHoursDialogOpen] = useState(false)
 
-  const { data: workingHours, isLoading } = useQuery(
-    ['workingHours', user?.id],
-    () => businessService.getWorkingHours(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: workingHoursData, error: workingHoursError } = useSWR(
+    user?.id ? ['workingHours', user.id] : null,
+    () => businessService.getWorkingHours(user!.id)
   )
 
-  const {
-    control,
-    handleSubmit,
-    watch,
+  const { 
+    register, 
+    control, 
+    handleSubmit, 
+    watch, 
     reset,
-    formState: { errors, isDirty },
+    formState: { errors, isDirty }
   } = useForm<WorkingHoursFormData>({
     resolver: zodResolver(workingHoursSchema),
-    defaultValues: {
-      monday: defaultDaySchedule,
-      tuesday: defaultDaySchedule,
-      wednesday: defaultDaySchedule,
-      thursday: defaultDaySchedule,
-      friday: defaultDaySchedule,
-      saturday: defaultDaySchedule,
-      sunday: defaultDaySchedule,
-      holidays: [],
-      specialHours: [],
-    },
+    defaultValues: workingHours,
+    mode: 'onChange'
   })
 
   const holidaysArray = useFieldArray({
@@ -135,41 +156,37 @@ const WorkingHours: React.FC = () => {
   })
 
   React.useEffect(() => {
-    if (workingHours) {
-      reset(workingHours)
+    if (workingHoursData) {
+      reset(workingHoursData)
     }
-  }, [workingHours, reset])
+  }, [workingHoursData, reset])
 
-  const updateWorkingHoursMutation = useMutation(
-    (data: WorkingHoursFormData) =>
-      businessService.updateWorkingHours(user!.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['workingHours', user?.id])
-        showNotification('Working hours updated successfully', 'success')
-      },
-      onError: () => {
-        showNotification('Failed to update working hours', 'error')
-      },
+  const handleSave = async (data: WorkingHoursFormData) => {
+    try {
+      await onSave(data)
+      await mutate(['workingHours', user?.id])
+      showNotification('Working hours updated successfully', 'success')
+    } catch (error) {
+      console.error('Failed to update working hours:', error)
+      showNotification('Failed to update working hours', 'error')
     }
-  )
-
-  const onSubmit = (data: WorkingHoursFormData) => {
-    updateWorkingHoursMutation.mutate(data)
   }
 
-  const handleAddBreak = (day: string) => {
+  const handleAddBreak = (day: DayOfWeek) => {
     setSelectedDay(day)
     setBreakDialogOpen(true)
   }
 
-  const DaySchedule: React.FC<{
-    day: string
-    control: any
-    errors: any
-    watch: any
-  }> = ({ day, control, errors, watch }) => {
+  interface DayScheduleProps {
+    day: DayOfWeek;
+    control: any;
+    errors: any;
+    watch: any;
+  }
+
+  const DaySchedule: React.FC<DayScheduleProps> = ({ day, control, errors, watch }) => {
     const isOpen = watch(`${day}.isOpen`)
+    const dayErrors = errors?.[day]
 
     return (
       <Card sx={{ mb: 2 }}>
@@ -200,6 +217,12 @@ const WorkingHours: React.FC = () => {
             />
           </Box>
 
+          {dayErrors && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {dayErrors.message}
+            </Alert>
+          )}
+
           {isOpen && (
             <>
               <Typography variant="subtitle2" gutterBottom>
@@ -216,7 +239,8 @@ const WorkingHours: React.FC = () => {
                         type="time"
                         fullWidth
                         label="Open"
-                        error={!!errors?.[day]?.timeSlots?.[0]?.start}
+                        error={!!dayErrors?.timeSlots?.[0]?.start}
+                        helperText={dayErrors?.timeSlots?.[0]?.start?.message}
                       />
                     )}
                   />
@@ -231,7 +255,8 @@ const WorkingHours: React.FC = () => {
                         type="time"
                         fullWidth
                         label="Close"
-                        error={!!errors?.[day]?.timeSlots?.[0]?.end}
+                        error={!!dayErrors?.timeSlots?.[0]?.end}
+                        helperText={dayErrors?.timeSlots?.[0]?.end?.message}
                       />
                     )}
                   />
@@ -269,6 +294,8 @@ const WorkingHours: React.FC = () => {
                             fullWidth
                             label="Start"
                             size="small"
+                            error={!!dayErrors?.breaks?.[index]?.start}
+                            helperText={dayErrors?.breaks?.[index]?.start?.message}
                           />
                         )}
                       />
@@ -284,6 +311,8 @@ const WorkingHours: React.FC = () => {
                             fullWidth
                             label="End"
                             size="small"
+                            error={!!dayErrors?.breaks?.[index]?.end}
+                            helperText={dayErrors?.breaks?.[index]?.end?.message}
                           />
                         )}
                       />
@@ -354,7 +383,7 @@ const WorkingHours: React.FC = () => {
           Working Hours
         </Typography>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(handleSave)}>
           <Paper sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" gutterBottom>
               Regular Hours
@@ -402,6 +431,8 @@ const WorkingHours: React.FC = () => {
                             fullWidth
                             label="Date"
                             sx={{ mb: 2 }}
+                            error={!!errors?.holidays?.[index]?.date}
+                            helperText={errors?.holidays?.[index]?.date?.message}
                           />
                         )}
                       />
@@ -461,6 +492,8 @@ const WorkingHours: React.FC = () => {
                             fullWidth
                             label="Date"
                             sx={{ mb: 2 }}
+                            error={!!errors?.specialHours?.[index]?.date}
+                            helperText={errors?.specialHours?.[index]?.date?.message}
                           />
                         )}
                       />
@@ -475,6 +508,8 @@ const WorkingHours: React.FC = () => {
                                 type="time"
                                 fullWidth
                                 label="Open"
+                                error={!!errors?.specialHours?.[index]?.timeSlots?.[0]?.start}
+                                helperText={errors?.specialHours?.[index]?.timeSlots?.[0]?.start?.message}
                               />
                             )}
                           />
@@ -489,6 +524,8 @@ const WorkingHours: React.FC = () => {
                                 type="time"
                                 fullWidth
                                 label="Close"
+                                error={!!errors?.specialHours?.[index]?.timeSlots?.[0]?.end}
+                                helperText={errors?.specialHours?.[index]?.timeSlots?.[0]?.end?.message}
                               />
                             )}
                           />
@@ -525,7 +562,7 @@ const WorkingHours: React.FC = () => {
             <LoadingButton
               type="submit"
               variant="contained"
-              loading={updateWorkingHoursMutation.isLoading}
+              loading={isLoading}
               disabled={!isDirty}
             >
               Save Changes
@@ -730,6 +767,3 @@ const WorkingHours: React.FC = () => {
     </Container>
   )
 }
-
-export default WorkingHours
-

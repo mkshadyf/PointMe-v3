@@ -1,16 +1,17 @@
-import { supabase } from '../lib/supabase';
-import { Service } from '../types/business';
+import { createClient } from '@/lib/supabase'
+import { Service, Category } from '@/types/business'
+
+const supabase = createClient()
 
 export interface CreateServiceInput {
   name: string;
   description: string;
   duration: number;
   price: number;
-  category?: string;
-  image?: string;
+  category: string;
   maxParticipants?: number;
+  isActive?: boolean;
   requiresConfirmation: boolean;
-  cancellationPolicy?: string;
 }
 
 export interface UpdateServiceInput {
@@ -19,11 +20,9 @@ export interface UpdateServiceInput {
   duration?: number;
   price?: number;
   category?: string;
-  image?: string;
-  isActive?: boolean;
   maxParticipants?: number;
+  isActive?: boolean;
   requiresConfirmation?: boolean;
-  cancellationPolicy?: string;
 }
 
 const serviceService = {
@@ -33,6 +32,7 @@ const serviceService = {
       .select('*')
       .eq('businessId', businessId)
       .order('name');
+    
     if (error) throw error;
     return data;
   },
@@ -43,19 +43,28 @@ const serviceService = {
       .select('*')
       .eq('id', id)
       .single();
+    
     if (error) throw error;
     return data;
   },
 
-  async createService(
-    businessId: string,
-    input: CreateServiceInput
-  ): Promise<Service> {
+  async getServiceCategories(): Promise<Category[]> {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name');
+    
+    if (error) throw error;
+    return data;
+  },
+
+  async createService(businessId: string, input: CreateServiceInput): Promise<Service> {
     const { data, error } = await supabase
       .from('services')
       .insert({ ...input, businessId })
       .select()
       .single();
+    
     if (error) throw error;
     return data;
   },
@@ -67,12 +76,17 @@ const serviceService = {
       .eq('id', id)
       .select()
       .single();
+    
     if (error) throw error;
     return data;
   },
 
   async deleteService(id: string): Promise<void> {
-    const { error } = await supabase.from('services').delete().eq('id', id);
+    const { error } = await supabase
+      .from('services')
+      .delete()
+      .eq('id', id);
+    
     if (error) throw error;
   },
 
@@ -84,11 +98,13 @@ const serviceService = {
     const { error: uploadError } = await supabase.storage
       .from('public')
       .upload(filePath, file);
+    
     if (uploadError) throw uploadError;
 
     const { data: { publicUrl }, error: urlError } = await supabase.storage
       .from('public')
       .getPublicUrl(filePath);
+    
     if (urlError) throw urlError;
 
     return publicUrl;
@@ -100,7 +116,8 @@ const serviceService = {
 
     const { error } = await supabase.storage
       .from('public')
-      .remove([`service-images/${filePath}`]);
+      .remove([filePath]);
+    
     if (error) throw error;
   },
 };

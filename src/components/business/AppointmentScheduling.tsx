@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React, { useState, useRef } from 'react'
 import {
   Box,
   Container,
@@ -36,12 +36,12 @@ import {
   Close as CloseIcon,
   Schedule as ScheduleIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import appointmentService from '../../services/appointmentService'
-import serviceService from '../../services/serviceService'
-import staffService from '../../services/staffService'
-import { useAuthStore } from '../../stores/authStore'
-import { useNotification } from '../../contexts/NotificationContext'
+import useSWR from 'swr'
+import { appointmentService } from '@/services/appointmentService'
+import { serviceService } from '@/services/serviceService'
+import { staffService } from '@/services/staffService'
+import { useAuthStore } from '@/stores/authStore'
+import { useNotification } from '@/contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
 import {
   format,
@@ -59,12 +59,32 @@ import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
+import { Appointment, AppointmentStatus, CreateAppointmentInput, UpdateAppointmentInput } from '@/types/appointment'
+import { Service } from '@/types/business'
+import { Staff } from '@/types/business'
+import { EventClickArg } from '@fullcalendar/core'
+import { z } from 'zod'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm, Controller } from 'react-hook-form'
 
 interface TabPanelProps {
-  children?: React.ReactNode
-  index: number
-  value: number
+  children?: React.ReactNode;
+  index: number;
+  value: number;
 }
+
+const appointmentSchema = z.object({
+  serviceId: z.string().min(1, 'Service is required'),
+  staffId: z.string().min(1, 'Staff member is required'),
+  startTime: z.string().min(1, 'Start time is required'),
+  endTime: z.string().min(1, 'End time is required'),
+  customerName: z.string().min(1, 'Customer name is required'),
+  customerEmail: z.string().email('Invalid email address'),
+  customerPhone: z.string().min(1, 'Phone number is required'),
+  notes: z.string().optional(),
+})
+
+type AppointmentFormData = z.infer<typeof appointmentSchema>
 
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
   <div hidden={value !== index} role="tabpanel">
@@ -72,48 +92,63 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
   </div>
 )
 
-const AppointmentScheduling: React.FC = () => {
+export default function AppointmentScheduling() {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
-  const [selectedDate, setSelectedDate] = React.useState<Date>(new Date())
-  const [selectedAppointment, setSelectedAppointment] = React.useState<any>(null)
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false)
-  const [tabValue, setTabValue] = React.useState(0)
-  const calendarRef = React.useRef<any>(null)
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [tabValue, setTabValue] = useState(0)
+  const calendarRef = useRef<FullCalendar>(null)
 
-  const { data: appointments, isLoading: appointmentsLoading } = useQuery(
-    ['appointments', user?.id, format(selectedDate, 'yyyy-MM-dd')],
-    () =>
-      appointmentService.getBusinessAppointments(
-        user!.id,
-        format(selectedDate, 'yyyy-MM-dd')
-      )
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors, isDirty },
+  } = useForm<AppointmentFormData>({
+    resolver: zodResolver(appointmentSchema),
+  })
+
+  const { data: appointments, error: appointmentsError, mutate: mutateAppointments } = useSWR<Appointment[]>(
+    user?.id ? ['appointments', user.id, format(selectedDate, 'yyyy-MM-dd')] : null,
+    () => appointmentService.getBusinessAppointments(user.id!, format(selectedDate, 'yyyy-MM-dd'))
   )
 
-  const { data: services } = useQuery(['services', user?.id], () =>
-    serviceService.getBusinessServices(user!.id)
+  const { data: services, error: servicesError } = useSWR<Service[]>(
+    user?.id ? ['services', user.id] : null,
+    () => serviceService.getBusinessServices(user.id!)
   )
 
-  const { data: staff } = useQuery(['staff', user?.id], () =>
-    staffService.getBusinessStaff(user!.id)
+  const { data: staff, error: staffError } = useSWR<Staff[]>(
+    user?.id ? ['staff', user.id] : null,
+    () => staffService.getBusinessStaff(user.id!)
   )
 
-  const updateAppointmentMutation = useMutation(
-    (data: any) => appointmentService.updateAppointment(data.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['appointments', user?.id])
-        showNotification('Appointment updated successfully', 'success')
-        setIsDialogOpen(false)
-      },
-      onError: () => {
-        showNotification('Failed to update appointment', 'error')
-      },
+  const handleCreateAppointment = async (data: AppointmentFormData) => {
+    if (!user?.id) return
+
+    try {
+      setIsLoading(true)
+      await appointmentService.createAppointment({
+        ...data,
+        businessId: user.id,
+        status: AppointmentStatus.PENDING,
+      })
+      await mutateAppointments()
+      setIsDialogOpen(false)
+      reset()
+      showNotification('Appointment created successfully', 'success')
+    } catch (error) {
+      console.error('Failed to create appointment:', error)
+      showNotification('Failed to create appointment', 'error')
+    } finally {
+      setIsLoading(false)
     }
-  )
+  }
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue)
   }
 
@@ -121,306 +156,398 @@ const AppointmentScheduling: React.FC = () => {
     setSelectedDate(date)
   }
 
-  const handleEventClick = (info: any) => {
-    setSelectedAppointment(info.event.extendedProps)
+  const handleEventClick = (info: EventClickArg) => {
+    setSelectedAppointment(info.event.extendedProps as Appointment)
     setIsDialogOpen(true)
   }
 
-  const handleStatusChange = (appointmentId: string, status: string) => {
-    updateAppointmentMutation.mutate({
-      id: appointmentId,
-      status,
-    })
+  const handleStatusChange = async (appointmentId: string, status: AppointmentStatus) => {
+    try {
+      setIsLoading(true)
+      await appointmentService.updateAppointment(appointmentId, { status })
+      await mutateAppointments()
+      showNotification('Appointment updated successfully', 'success')
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to update appointment:', error)
+      showNotification('Failed to update appointment', 'error')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const getAppointmentColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'confirmed':
+  const getAppointmentColor = (status: AppointmentStatus): string => {
+    switch (status) {
+      case AppointmentStatus.CONFIRMED:
         return '#4caf50'
-      case 'pending':
+      case AppointmentStatus.PENDING:
         return '#ff9800'
-      case 'cancelled':
+      case AppointmentStatus.CANCELLED:
         return '#f44336'
+      case AppointmentStatus.COMPLETED:
+        return '#2196f3'
+      case AppointmentStatus.NO_SHOW:
+        return '#9c27b0'
+      case AppointmentStatus.REJECTED:
+        return '#d32f2f'
+      case AppointmentStatus.PAID:
+        return '#009688'
       default:
         return '#2196f3'
     }
   }
 
-  const WeekView = () => {
-    const weekStart = startOfWeek(selectedDate)
-    const weekEnd = endOfWeek(selectedDate)
-    const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
-
+  if (!user) {
     return (
-      <Grid container spacing={2}>
-        {days.map((day) => (
-          <Grid item xs={12} sm={6} md={3} key={day.toString()}>
-            <Card
-              sx={{
-                height: '100%',
-                backgroundColor: isToday(day) ? 'primary.light' : 'inherit',
-              }}
-            >
-              <CardContent>
-                <Typography
-                  variant="h6"
-                  gutterBottom
-                  sx={{ textAlign: 'center' }}
-                >
-                  {format(day, 'EEE, MMM d')}
-                </Typography>
-                {appointments
-                  ?.filter((apt) => isSameDay(parseISO(apt.startTime), day))
-                  .map((appointment) => (
-                    <Box
-                      key={appointment.id}
-                      sx={{
-                        mb: 1,
-                        p: 1,
-                        borderRadius: 1,
-                        backgroundColor: getAppointmentColor(appointment.status),
-                        color: 'white',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => {
-                        setSelectedAppointment(appointment)
-                        setIsDialogOpen(true)
-                      }}
-                    >
-                      <Typography variant="subtitle2">
-                        {format(parseISO(appointment.startTime), 'h:mm a')}
-                      </Typography>
-                      <Typography variant="body2">
-                        {appointment.customerName}
-                      </Typography>
-                      <Typography variant="caption">
-                        {appointment.serviceName}
-                      </Typography>
-                    </Box>
-                  ))}
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Please log in to view appointments
+      </Alert>
     )
   }
 
-  const CalendarView = () => (
-    <Box sx={{ height: 'calc(100vh - 300px)' }}>
-      <FullCalendar
-        ref={calendarRef}
-        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-        initialView="timeGridWeek"
-        headerToolbar={{
-          left: 'prev,next today',
-          center: 'title',
-          right: 'dayGridMonth,timeGridWeek,timeGridDay',
-        }}
-        events={appointments?.map((apt) => ({
-          id: apt.id,
-          title: `${apt.customerName} - ${apt.serviceName}`,
-          start: apt.startTime,
-          end: apt.endTime,
-          backgroundColor: getAppointmentColor(apt.status),
-          extendedProps: apt,
-        }))}
-        eventClick={handleEventClick}
-        height="100%"
-      />
-    </Box>
-  )
-
-  if (!user) {
+  if (appointmentsError || servicesError || staffError) {
     return (
-      <Container maxWidth="lg">
-        <Box
-          sx={{
-            textAlign: 'center',
-            py: 8,
-          }}
-        >
-          <Typography variant="h6" color="text.secondary" gutterBottom>
-            Please sign in to manage appointments
-          </Typography>
-        </Box>
-      </Container>
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Failed to load appointments. Please try again later.
+      </Alert>
     )
   }
 
   return (
     <Container maxWidth="lg">
       <Box sx={{ my: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Appointment Management
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
+          <Typography variant="h4">Appointments</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              reset()
+              setSelectedAppointment(null)
+              setIsDialogOpen(true)
+            }}
+          >
+            New Appointment
+          </Button>
+        </Box>
 
         <Paper sx={{ mb: 3 }}>
-          <Tabs
-            value={tabValue}
-            onChange={handleTabChange}
-            sx={{ borderBottom: 1, borderColor: 'divider' }}
-          >
-            <Tab label="Calendar View" />
+          <Tabs value={tabValue} onChange={handleTabChange} centered>
+            <Tab label="Calendar" />
             <Tab label="Week View" />
+            <Tab label="List View" />
           </Tabs>
 
-          <Box sx={{ p: 3 }}>
-            <TabPanel value={tabValue} index={0}>
-              <CalendarView />
-            </TabPanel>
-            <TabPanel value={tabValue} index={1}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  mb: 3,
+          <TabPanel value={tabValue} index={0}>
+            <Box sx={{ height: 600 }}>
+              <FullCalendar
+                ref={calendarRef}
+                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                initialView="timeGridWeek"
+                headerToolbar={{
+                  left: 'prev,next today',
+                  center: 'title',
+                  right: 'dayGridMonth,timeGridWeek,timeGridDay',
                 }}
-              >
-                <Button
-                  onClick={() =>
-                    handleDateChange(subWeeks(selectedDate, 1))
-                  }
-                >
-                  Previous Week
-                </Button>
-                <Typography variant="h6">
-                  {format(selectedDate, 'MMMM d, yyyy')}
-                </Typography>
-                <Button
-                  onClick={() =>
-                    handleDateChange(addWeeks(selectedDate, 1))
-                  }
-                >
-                  Next Week
-                </Button>
-              </Box>
-              <WeekView />
-            </TabPanel>
-          </Box>
+                events={appointments?.map((apt) => ({
+                  id: apt.id,
+                  title: `${apt.customerName} - ${apt.service.name}`,
+                  start: apt.startTime,
+                  end: apt.endTime,
+                  backgroundColor: getAppointmentColor(apt.status),
+                  extendedProps: apt,
+                }))}
+                eventClick={handleEventClick}
+                editable={false}
+                selectable={true}
+                selectMirror={true}
+                dayMaxEvents={true}
+                weekends={true}
+                nowIndicator={true}
+                height="100%"
+              />
+            </Box>
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={1}>
+            <WeekView />
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={2}>
+            <ListView />
+          </TabPanel>
         </Paper>
 
-        <Dialog
+        <AppointmentDialog
           open={isDialogOpen}
           onClose={() => setIsDialogOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Appointment Details</DialogTitle>
-          <DialogContent>
-            {selectedAppointment && (
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Customer Information
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body1">
-                      {selectedAppointment.customerName}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {selectedAppointment.customerEmail}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {selectedAppointment.customerPhone}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Service Details
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body1">
-                      {selectedAppointment.serviceName}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Duration: {selectedAppointment.duration} minutes
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Price: ${selectedAppointment.price}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Schedule
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body1">
-                      {format(
-                        parseISO(selectedAppointment.startTime),
-                        'MMMM d, yyyy'
-                      )}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {format(
-                        parseISO(selectedAppointment.startTime),
-                        'h:mm a'
-                      )}{' '}
-                      -{' '}
-                      {format(
-                        parseISO(selectedAppointment.endTime),
-                        'h:mm a'
-                      )}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Status
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      gap: 1,
-                    }}
-                  >
-                    <Button
-                      variant={
-                        selectedAppointment.status === 'confirmed'
-                          ? 'contained'
-                          : 'outlined'
-                      }
-                      color="success"
-                      onClick={() =>
-                        handleStatusChange(
-                          selectedAppointment.id,
-                          'confirmed'
-                        )
-                      }
-                    >
-                      Confirm
-                    </Button>
-                    <Button
-                      variant={
-                        selectedAppointment.status === 'cancelled'
-                          ? 'contained'
-                          : 'outlined'
-                      }
-                      color="error"
-                      onClick={() =>
-                        handleStatusChange(
-                          selectedAppointment.id,
-                          'cancelled'
-                        )
-                      }
-                    >
-                      Cancel
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setIsDialogOpen(false)}>Close</Button>
-          </DialogActions>
-        </Dialog>
+          appointment={selectedAppointment}
+          onStatusChange={handleStatusChange}
+          onSubmit={handleCreateAppointment}
+          services={services || []}
+          staff={staff || []}
+          control={control}
+          errors={errors}
+          isLoading={isLoading}
+          isDirty={isDirty}
+        />
       </Box>
     </Container>
   )
 }
 
-export default AppointmentScheduling
+interface AppointmentDialogProps {
+  open: boolean;
+  onClose: () => void;
+  appointment: Appointment | null;
+  onStatusChange: (id: string, status: AppointmentStatus) => Promise<void>;
+  onSubmit: (data: AppointmentFormData) => Promise<void>;
+  services: Service[];
+  staff: Staff[];
+  control: any;
+  errors: any;
+  isLoading: boolean;
+  isDirty: boolean;
+}
 
+const AppointmentDialog: React.FC<AppointmentDialogProps> = ({
+  open,
+  onClose,
+  appointment,
+  onStatusChange,
+  onSubmit,
+  services,
+  staff,
+  control,
+  errors,
+  isLoading,
+  isDirty,
+}) => {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <DialogTitle>
+          {appointment ? 'View Appointment' : 'New Appointment'}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Grid container spacing={2}>
+              {/* Form fields */}
+              <Grid item xs={12}>
+                <Controller
+                  name="serviceId"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.serviceId}>
+                      <InputLabel>Service</InputLabel>
+                      <Select {...field} label="Service">
+                        {services.map((service) => (
+                          <MenuItem key={service.id} value={service.id}>
+                            {service.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Controller
+                  name="staffId"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.staffId}>
+                      <InputLabel>Staff Member</InputLabel>
+                      <Select {...field} label="Staff Member">
+                        {staff.map((member) => (
+                          <MenuItem key={member.id} value={member.id}>
+                            {member.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="startTime"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      type="datetime-local"
+                      label="Start Time"
+                      fullWidth
+                      error={!!errors.startTime}
+                      helperText={errors.startTime?.message}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="endTime"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      type="datetime-local"
+                      label="End Time"
+                      fullWidth
+                      error={!!errors.endTime}
+                      helperText={errors.endTime?.message}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Controller
+                  name="customerName"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Customer Name"
+                      fullWidth
+                      error={!!errors.customerName}
+                      helperText={errors.customerName?.message}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="customerEmail"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Customer Email"
+                      fullWidth
+                      error={!!errors.customerEmail}
+                      helperText={errors.customerEmail?.message}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="customerPhone"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Customer Phone"
+                      fullWidth
+                      error={!!errors.customerPhone}
+                      helperText={errors.customerPhone?.message}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Controller
+                  name="notes"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Notes"
+                      fullWidth
+                      multiline
+                      rows={4}
+                      error={!!errors.notes}
+                      helperText={errors.notes?.message}
+                    />
+                  )}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Cancel</Button>
+          {appointment ? (
+            <>
+              <LoadingButton
+                onClick={() =>
+                  onStatusChange(appointment.id, AppointmentStatus.CONFIRMED)
+                }
+                loading={isLoading}
+                color="primary"
+                startIcon={<CheckIcon />}
+              >
+                Confirm
+              </LoadingButton>
+              <LoadingButton
+                onClick={() =>
+                  onStatusChange(appointment.id, AppointmentStatus.REJECTED)
+                }
+                loading={isLoading}
+                color="error"
+                startIcon={<CloseIcon />}
+              >
+                Reject
+              </LoadingButton>
+            </>
+          ) : (
+            <LoadingButton
+              type="submit"
+              loading={isLoading}
+              disabled={!isDirty}
+              variant="contained"
+            >
+              Create
+            </LoadingButton>
+          )}
+        </DialogActions>
+      </form>
+    </Dialog>
+  )
+}
+
+const WeekView: React.FC = () => {
+  const weekStart = startOfWeek(new Date())
+  const weekEnd = endOfWeek(new Date())
+  const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
+
+  return (
+    <Grid container spacing={2}>
+      {days.map((day) => (
+        <Grid item xs={12} sm={6} md={3} key={day.toString()}>
+          <Card
+            sx={{
+              height: '100%',
+              backgroundColor: isToday(day) ? 'primary.light' : 'inherit',
+            }}
+          >
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{ textAlign: 'center' }}>
+                {format(day, 'EEE, MMM d')}
+              </Typography>
+              {/* Appointments for this day will be rendered here */}
+            </CardContent>
+          </Card>
+        </Grid>
+      ))}
+    </Grid>
+  )
+}
+
+const ListView: React.FC = () => {
+  return (
+    <Box>
+      {/* List view implementation */}
+    </Box>
+  )
+}

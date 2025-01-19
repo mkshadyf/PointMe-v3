@@ -1,4 +1,5 @@
 import { Business } from './business';
+import { Service } from './service';
 
 export interface Appointment {
   id: string;
@@ -13,11 +14,15 @@ export interface Appointment {
   status: AppointmentStatus;
   date: string;
   startTime: string;
+  endTime: string;
   duration: number;
   notes?: string;
-  paymentStatus: PaymentStatus;
-  paymentAmount: number;
-  paymentMethod?: string;
+  price: number;
+  currency: string;
+  isPaid: boolean;
+  paymentIntentId?: string;
+  paymentStatus?: 'pending' | 'paid' | 'failed';
+  paymentAmount?: number;
   cancellationReason?: string;
   business?: Business;
   service?: Service;
@@ -27,12 +32,16 @@ export interface Appointment {
 
 export interface CreateAppointmentInput {
   businessId: string;
-  customerId: string;
+  customerId?: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
   serviceId: string;
   staffId?: string;
   date: string;
-  startTime: string;
+  startTime: Date | string;
   notes?: string;
+  status?: AppointmentStatus;
 }
 
 export interface UpdateAppointmentInput {
@@ -42,38 +51,31 @@ export interface UpdateAppointmentInput {
   date?: string;
   startTime?: string;
   notes?: string;
-  paymentStatus?: PaymentStatus;
+  isPaid?: boolean;
+  paymentIntentId?: string;
+  paymentStatus?: 'pending' | 'paid' | 'failed';
+  paymentAmount?: number;
   cancellationReason?: string;
 }
 
-export type AppointmentStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'in-progress'
-  | 'completed'
-  | 'cancelled'
-  | 'no-show';
-
-export type PaymentStatus =
-  | 'pending'
-  | 'paid'
-  | 'partially_paid'
-  | 'refunded'
-  | 'failed';
+export enum AppointmentStatus {
+  PENDING = 'pending',
+  CONFIRMED = 'confirmed',
+  CANCELLED = 'cancelled',
+  COMPLETED = 'completed',
+  NO_SHOW = 'no_show',
+  RESCHEDULED = 'rescheduled',
+  PAID = 'paid',
+  REJECTED = 'rejected'
+}
 
 export interface AppointmentFilters {
   businessId?: string;
   customerId?: string;
   staffId?: string;
-  status?: AppointmentStatus;
-  startDate?: string;
-  endDate?: string;
-  paymentStatus?: PaymentStatus;
-}
-
-export interface Service {
-  id: string;
-  name: string;
-  duration: number;
-  price: number;
+  status?: AppointmentStatus | string;
+  startDate?: Date;
+  endDate?: Date;
+  isPaid?: boolean;
+  date?: string;
 }

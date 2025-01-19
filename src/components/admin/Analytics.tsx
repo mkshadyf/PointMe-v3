@@ -1,346 +1,318 @@
 import React from 'react'
 import {
-  Box,
-  Container,
-  Typography,
-  Paper,
-  Grid,
   Card,
   CardContent,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Tooltip,
-  IconButton,
+  Grid,
+  Typography,
+  Box,
+  CircularProgress,
 } from '@mui/material'
 import {
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Info as InfoIcon,
-  Business as BusinessIcon,
-  People as PeopleIcon,
-  EventAvailable as EventIcon,
-  Report as ReportIcon,
-} from '@mui/icons-material'
-import { useQuery } from 'react-query'
-import adminService from '../../services/adminService'
-import type { AdminStats } from '../../services/adminService'
-import { useAuthStore } from '../../stores/authStore'
-import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip as ChartTooltip,
+  Tooltip,
+  Legend,
   ResponsiveContainer,
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
-  Legend,
 } from 'recharts'
-import { format, subDays, startOfDay, endOfDay } from 'date-fns'
+import useSWR from 'swr'
+import { adminService } from '@/services/adminService'
+import type { AdminStats } from '@/types/admin'
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8']
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
 
-interface StatCard {
-  title: string
+interface ChartData {
+  name: string
   value: number
-  trend: number
-  icon: React.ReactNode
-  color: string
 }
 
 const Analytics: React.FC = () => {
-  const { user } = useAuthStore()
-  const [timeRange, setTimeRange] = React.useState('7d')
-  const [selectedMetric, setSelectedMetric] = React.useState('users')
-
-  const getDateRange = () => {
-    const end = endOfDay(new Date())
-    let start
-    switch (timeRange) {
-      case '24h':
-        start = startOfDay(subDays(end, 1))
-        break
-      case '7d':
-        start = startOfDay(subDays(end, 7))
-        break
-      case '30d':
-        start = startOfDay(subDays(end, 30))
-        break
-      case '90d':
-        start = startOfDay(subDays(end, 90))
-        break
-      default:
-        start = startOfDay(subDays(end, 7))
-    }
-    return { start, end }
-  }
-
-  const { data: analyticsData } = useQuery(
-    ['analytics', timeRange],
-    () => adminService.getAdminStats(),
-    {
-      refetchInterval: 300000, // 5 minutes
-    }
+  const { data: stats, error, isLoading } = useSWR<AdminStats>('adminStats', () =>
+    adminService.getAdminStats()
   )
 
-  const stats: StatCard[] = [
-    {
-      title: 'Total Users',
-      value: analyticsData?.totalUsers || 0,
-      trend: analyticsData?.userGrowth || 0,
-      icon: <PeopleIcon />,
-      color: '#2196f3',
-    },
-    {
-      title: 'Active Businesses',
-      value: analyticsData?.activeBusinesses || 0,
-      trend: analyticsData?.businessGrowth || 0,
-      icon: <BusinessIcon />,
-      color: '#4caf50',
-    },
-    {
-      title: 'Appointments Today',
-      value: analyticsData?.appointmentsToday || 0,
-      trend: analyticsData?.appointmentGrowth || 0,
-      icon: <EventIcon />,
-      color: '#ff9800',
-    },
-    {
-      title: 'Reports',
-      value: analyticsData?.totalReports || 0,
-      trend: analyticsData?.reportGrowth || 0,
-      icon: <ReportIcon />,
-      color: '#f44336',
-    },
-  ]
-
-  const StatCard: React.FC<StatCard> = ({
-    title,
-    value,
-    trend,
-    icon,
-    color,
-  }) => (
-    <Card>
-      <CardContent>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="flex-start"
-        >
-          <Box>
-            <Typography color="text.secondary" gutterBottom>
-              {title}
-            </Typography>
-            <Typography variant="h4" component="div">
-              {value.toLocaleString()}
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              backgroundColor: color,
-              borderRadius: '50%',
-              p: 1,
-              color: 'white',
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-        <Box display="flex" alignItems="center" mt={2}>
-          {trend > 0 ? (
-            <TrendingUpIcon color="success" />
-          ) : (
-            <TrendingDownIcon color="error" />
-          )}
-          <Typography
-            variant="body2"
-            color={trend > 0 ? 'success.main' : 'error.main'}
-            sx={{ ml: 1 }}
-          >
-            {Math.abs(trend)}% from last period
-          </Typography>
-        </Box>
-      </CardContent>
-    </Card>
-  )
-
-  const GrowthChart = () => (
-    <Card sx={{ height: 400 }}>
-      <CardContent>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          mb={3}
-        >
-          <Typography variant="h6">Growth Trends</Typography>
-          <FormControl size="small" sx={{ width: 150 }}>
-            <InputLabel>Metric</InputLabel>
-            <Select
-              value={selectedMetric}
-              label="Metric"
-              onChange={(e) => setSelectedMetric(e.target.value)}
-            >
-              <MenuItem value="users">Users</MenuItem>
-              <MenuItem value="businesses">Businesses</MenuItem>
-              <MenuItem value="appointments">Appointments</MenuItem>
-              <MenuItem value="revenue">Revenue</MenuItem>
-            </Select>
-          </FormControl>
-        </Box>
-        <ResponsiveContainer>
-          <AreaChart data={analyticsData?.growthData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="date"
-              tickFormatter={(date) => format(new Date(date), 'MMM d')}
-            />
-            <YAxis />
-            <ChartTooltip />
-            <Area
-              type="monotone"
-              dataKey={selectedMetric}
-              stroke="#8884d8"
-              fill="#8884d8"
-              fillOpacity={0.3}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  )
-
-  const CategoryDistribution = () => (
-    <Card sx={{ height: 400 }}>
-      <CardContent>
-        <Typography variant="h6" gutterBottom>
-          Business Categories
-        </Typography>
-        <ResponsiveContainer>
-          <PieChart>
-            <Pie
-              data={analyticsData?.categoryDistribution}
-              dataKey="value"
-              nameKey="name"
-              cx="50%"
-              cy="50%"
-              outerRadius={100}
-              label
-            >
-              {analyticsData?.categoryDistribution.map((entry: any, index: number) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={COLORS[index % COLORS.length]}
-                />
-              ))}
-            </Pie>
-            <Legend />
-            <ChartTooltip />
-          </PieChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  )
-
-  const AppointmentStats = () => (
-    <Card sx={{ height: 400 }}>
-      <CardContent>
-        <Typography variant="h6" gutterBottom>
-          Appointment Status
-        </Typography>
-        <ResponsiveContainer>
-          <BarChart data={analyticsData?.appointmentStats}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="status" />
-            <YAxis />
-            <ChartTooltip />
-            <Bar dataKey="count" fill="#8884d8">
-              {analyticsData?.appointmentStats.map((entry: any, index: number) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={COLORS[index % COLORS.length]}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  )
-
-  if (!user || user.role !== 'admin') {
+  if (isLoading) {
     return (
-      <Container maxWidth="lg">
-        <Box
-          sx={{
-            textAlign: 'center',
-            py: 8,
-          }}
-        >
-          <Typography variant="h6" color="text.secondary" gutterBottom>
-            Access Denied
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            You don't have permission to access this page
-          </Typography>
-        </Box>
-      </Container>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+        <CircularProgress />
+      </Box>
     )
   }
 
-  return (
-    <Container maxWidth="lg">
-      <Box sx={{ my: 4 }}>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          mb={3}
-        >
-          <Typography variant="h4">Analytics Dashboard</Typography>
-          <FormControl size="small" sx={{ width: 150 }}>
-            <InputLabel>Time Range</InputLabel>
-            <Select
-              value={timeRange}
-              label="Time Range"
-              onChange={(e) => setTimeRange(e.target.value)}
-            >
-              <MenuItem value="24h">Last 24 Hours</MenuItem>
-              <MenuItem value="7d">Last 7 Days</MenuItem>
-              <MenuItem value="30d">Last 30 Days</MenuItem>
-              <MenuItem value="90d">Last 90 Days</MenuItem>
-            </Select>
-          </FormControl>
-        </Box>
-
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          {stats.map((stat) => (
-            <Grid item xs={12} sm={6} md={3} key={stat.title}>
-              <StatCard {...stat} />
-            </Grid>
-          ))}
-        </Grid>
-
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={8}>
-            <GrowthChart />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <CategoryDistribution />
-          </Grid>
-          <Grid item xs={12}>
-            <AppointmentStats />
-          </Grid>
-        </Grid>
+  if (error) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+        <Typography color="error">Error loading analytics data</Typography>
       </Box>
-    </Container>
+    )
+  }
+
+  if (!stats) {
+    return null
+  }
+
+  const userGrowthData = stats.growthData.users.map(item => ({
+    name: new Date(item.date).toLocaleDateString(),
+    Users: item.count,
+  }))
+
+  const businessGrowthData = stats.growthData.businesses.map(item => ({
+    name: new Date(item.date).toLocaleDateString(),
+    Businesses: item.count,
+  }))
+
+  const appointmentGrowthData = stats.growthData.appointments.map(item => ({
+    name: new Date(item.date).toLocaleDateString(),
+    Appointments: item.count,
+  }))
+
+  const appointmentStatusData: ChartData[] = stats.appointmentStats.map(stat => ({
+    name: stat.status.charAt(0).toUpperCase() + stat.status.slice(1),
+    value: stat.count,
+  }))
+
+  const businessCategoryData: ChartData[] = stats.categoryDistribution.businessCategories.map(cat => ({
+    name: cat.name,
+    value: cat.count,
+  }))
+
+  const serviceCategoryData: ChartData[] = stats.categoryDistribution.serviceCategories.map(cat => ({
+    name: cat.name,
+    value: cat.count,
+  }))
+
+  return (
+    <Box sx={{ flexGrow: 1 }}>
+      <Typography variant="h4" gutterBottom>
+        Analytics Overview
+      </Typography>
+
+      <Grid container spacing={3}>
+        {/* Growth Charts */}
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Growth Trends
+              </Typography>
+              <Box height={400}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={userGrowthData}
+                    margin={{
+                      top: 5,
+                      right: 30,
+                      left: 20,
+                      bottom: 5,
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="Users"
+                      stroke="#8884d8"
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Business Growth */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Business Growth
+              </Typography>
+              <Box height={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={businessGrowthData}
+                    margin={{
+                      top: 5,
+                      right: 30,
+                      left: 20,
+                      bottom: 5,
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="Businesses"
+                      stroke="#00C49F"
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Appointment Growth */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Appointment Growth
+              </Typography>
+              <Box height={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={appointmentGrowthData}
+                    margin={{
+                      top: 5,
+                      right: 30,
+                      left: 20,
+                      bottom: 5,
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="Appointments"
+                      stroke="#FFBB28"
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Appointment Status Distribution */}
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Appointment Status Distribution
+              </Typography>
+              <Box height={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={appointmentStatusData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {appointmentStatusData.map((_, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Business Categories Distribution */}
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Business Categories
+              </Typography>
+              <Box height={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={businessCategoryData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {businessCategoryData.map((_, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Service Categories Distribution */}
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Service Categories
+              </Typography>
+              <Box height={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={serviceCategoryData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {serviceCategoryData.map((_, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
   )
 }
 

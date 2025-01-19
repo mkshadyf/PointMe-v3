@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Table,
   TableBody,
@@ -16,29 +16,19 @@ import {
   Chip,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
+import useSWR, { useSWRConfig } from 'swr'
 import categoryService from '../../services/categoryService'
 import { BusinessCategory } from '../../types/category'
 import EditBusinessCategoryDialog from './EditBusinessCategoryDialog'
 
-const BusinessCategoriesList: React.FC = () => {
-  const queryClient = useQueryClient()
-  const [selectedCategory, setSelectedCategory] = React.useState<BusinessCategory | null>(null)
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
-  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
+const BusinessCategoriesList = () => {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [selectedCategory, setSelectedCategory] = useState<BusinessCategory | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const { mutate } = useSWRConfig()
 
-  const { data: categories, isLoading } = useQuery(
-    'businessCategories',
-    () => categoryService.getBusinessCategories()
-  )
-
-  const deleteMutation = useMutation(
-    (id: string) => categoryService.deleteBusinessCategory(id),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('businessCategories')
-      },
-    }
+  const { data: categories, error, isLoading } = useSWR('businessCategories', () =>
+    categoryService.getBusinessCategories()
   )
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, category: BusinessCategory) => {
@@ -50,18 +40,18 @@ const BusinessCategoriesList: React.FC = () => {
     setAnchorEl(null)
   }
 
-  const handleEdit = () => {
+  const handleEditClick = () => {
     setEditDialogOpen(true)
     handleMenuClose()
   }
 
-  const handleDelete = async () => {
+  const handleDeleteClick = async () => {
     if (selectedCategory) {
       try {
-        await deleteMutation.mutateAsync(selectedCategory.id)
+        await categoryService.deleteBusinessCategory(selectedCategory.id)
+        mutate('businessCategories')
       } catch (error) {
-        console.error('Failed to delete category:', error)
-        // Handle error (show notification, etc.)
+        console.error('Failed to delete business category:', error)
       }
     }
     handleMenuClose()
@@ -75,19 +65,17 @@ const BusinessCategoriesList: React.FC = () => {
     )
   }
 
-  if (!categories?.length) {
+  if (error) {
     return (
-      <Box textAlign="center" p={3}>
-        <Typography variant="body1" color="text.secondary">
-          No business categories found. Add your first category to get started.
-        </Typography>
-      </Box>
+      <Typography color="error" align="center">
+        Error loading categories
+      </Typography>
     )
   }
 
   return (
     <>
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
@@ -99,7 +87,7 @@ const BusinessCategoriesList: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {categories.map((category) => (
+            {categories?.map((category) => (
               <TableRow key={category.id}>
                 <TableCell component="th" scope="row">
                   {category.name}
@@ -120,10 +108,7 @@ const BusinessCategoriesList: React.FC = () => {
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <IconButton
-                    aria-label="category actions"
-                    onClick={(e) => handleMenuClick(e, category)}
-                  >
+                  <IconButton onClick={(e) => handleMenuClick(e, category)}>
                     <MoreVertIcon />
                   </IconButton>
                 </TableCell>
@@ -138,8 +123,8 @@ const BusinessCategoriesList: React.FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleEdit}>Edit</MenuItem>
-        <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
+        <MenuItem onClick={handleEditClick}>Edit</MenuItem>
+        <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>
           Delete
         </MenuItem>
       </Menu>

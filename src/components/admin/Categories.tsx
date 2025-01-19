@@ -29,96 +29,82 @@ import {
   Delete as DeleteIcon,
   DragIndicator as DragIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import adminService from '../../services/adminService'
+import useSWR, { useSWRConfig } from 'swr'
+import { adminService } from '@/services/adminService'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotification } from '../../contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd'
-import { BusinessCategory, CreateBusinessCategoryInput, UpdateBusinessCategoryInput } from '../../types/category'
+import { BusinessCategory, Category, CreateBusinessCategoryInput, UpdateBusinessCategoryInput } from '../../types/category'
+import { AlertColor } from '@mui/material'
+import { showNotification } from '../../utils/notification'
 
-const Categories: React.FC = () => {
+interface CategoriesProps {
+  onSelectCategory?: (category: Category | undefined) => void
+  selectedCategory?: Category
+}
+
+const Categories: React.FC<CategoriesProps> = ({ onSelectCategory, selectedCategory }) => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
+  const { data: categories, error, isLoading } = useSWR<Category[]>(
+    'categories',
+    () => adminService.getCategories(),
+    { fallbackData: [] }
+  )
+
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [selectedCategory, setSelectedCategory] = React.useState<BusinessCategory | null>(
-    null
-  )
-  const [selectedParentId, setSelectedParentId] = React.useState<string | null>(
-    null
-  )
+  const [selectedCategoryState, setSelectedCategory] = React.useState<Category | undefined>(undefined)
+  const [selectedParentId, setSelectedParentId] = React.useState<string | null>(null)
 
-  const { data: categories } = useQuery<BusinessCategory[]>(['categories'], () =>
-    adminService.getCategories()
-  )
-
-  const createMutation = useMutation(
-    (data: CreateBusinessCategoryInput) => adminService.createCategory(data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['categories'])
-        showNotification('Category created successfully', 'success')
-        setSelectedCategory(null)
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
+  const handleAddCategory = async (data: CreateBusinessCategoryInput) => {
+    try {
+      const newCategory = await adminService.createCategory({
+        ...data,
+        order: categories?.length || 0
+      })
+      mutate('categories')
+      showNotification('Category created successfully', { variant: 'success' as AlertColor })
+    } catch (error) {
+      console.error('Failed to create category:', error)
+      showNotification('Failed to create category', { variant: 'error' as AlertColor })
     }
-  )
+  }
 
-  const updateMutation = useMutation(
-    (data: UpdateBusinessCategoryInput) => adminService.updateCategory(data.id, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['categories'])
-        showNotification('Category updated successfully', 'success')
-        setSelectedCategory(null)
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
+  const handleUpdateCategory = async (categoryId: string, data: UpdateBusinessCategoryInput) => {
+    try {
+      await adminService.updateCategory(categoryId, data)
+      mutate('categories')
+      showNotification('Category updated successfully', { variant: 'success' as AlertColor })
+    } catch (error) {
+      console.error('Failed to update category:', error)
+      showNotification('Failed to update category', { variant: 'error' as AlertColor })
     }
-  )
+  }
 
-  const deleteMutation = useMutation(
-    (id: string) => adminService.deleteCategory(id),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['categories'])
-        showNotification('Category deleted successfully', 'success')
-      },
-      onError: () => {
-        showNotification('Failed to delete category', 'error')
-      },
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      await adminService.deleteCategory(categoryId)
+      mutate('categories')
+      showNotification('Category deleted successfully', { variant: 'success' as AlertColor })
+    } catch (error) {
+      console.error('Failed to delete category:', error)
+      showNotification('Failed to delete category', { variant: 'error' as AlertColor })
     }
-  )
-
-  const reorderMutation = useMutation(
-    (categories: { id: string; order: number }[]) =>
-      adminService.updateCategoriesOrder(categories),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['categories'])
-        showNotification('Categories reordered successfully', 'success')
-      },
-      onError: (error: Error) => {
-        showNotification(error.message, 'error')
-      },
-    }
-  )
+  }
 
   const handleOpenDialog = (
-    category?: BusinessCategory,
+    category?: Category,
     parentId?: string | null
   ) => {
-    setSelectedCategory(category || null)
+    setSelectedCategory(category || undefined)
     setSelectedParentId(parentId || null)
     setDialogOpen(true)
   }
 
   const handleCloseDialog = () => {
-    setSelectedCategory(null)
+    setSelectedCategory(undefined)
     setSelectedParentId(null)
     setDialogOpen(false)
   }
@@ -130,32 +116,28 @@ const Categories: React.FC = () => {
     const [removed] = reorderedCategories.splice(result.source.index, 1)
     reorderedCategories.splice(result.destination.index, 0, removed)
 
-    reorderMutation.mutate(reorderedCategories.map((category, index) => ({ id: category.id, order: index })))
-  }
-
-  const handleCreateCategory = async (categoryData: CreateBusinessCategoryInput) => {
-    await createMutation.mutateAsync(categoryData)
+    adminService.updateCategoriesOrder(reorderedCategories.map((category, index) => ({ id: category.id, order: index })))
   }
 
   const CategoryForm = () => {
     const [formData, setFormData] = React.useState({
-      name: selectedCategory?.name || '',
-      description: selectedCategory?.description || '',
-      icon: selectedCategory?.icon || '',
+      name: selectedCategoryState?.name || '',
+      description: selectedCategoryState?.description || '',
+      icon: selectedCategoryState?.icon || '',
     })
 
     const handleSubmit = (e: React.FormEvent) => {
       e.preventDefault()
       const data = {
         ...formData,
-        ...(selectedCategory && { id: selectedCategory.id }),
+        ...(selectedCategoryState && { id: selectedCategoryState.id }),
         ...(selectedParentId && { parentId: selectedParentId }),
       }
 
-      if (selectedCategory) {
-        updateMutation.mutate(data)
+      if (selectedCategoryState) {
+        handleUpdateCategory(selectedCategoryState.id, data)
       } else {
-        handleCreateCategory(data)
+        handleAddCategory(data)
       }
     }
 
@@ -197,9 +179,9 @@ const Categories: React.FC = () => {
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <LoadingButton
             type="submit"
-            loading={createMutation.isLoading || updateMutation.isLoading}
+            loading={isLoading}
           >
-            {selectedCategory ? 'Update' : 'Create'}
+            {selectedCategoryState ? 'Update' : 'Create'}
           </LoadingButton>
         </DialogActions>
       </form>
@@ -207,7 +189,7 @@ const Categories: React.FC = () => {
   }
 
   const CategoryItem: React.FC<{
-    category: BusinessCategory
+    category: Category
     index: number
     level?: number
   }> = ({ category, index, level = 0 }) => (
@@ -242,7 +224,7 @@ const Categories: React.FC = () => {
             <Button
               size="small"
               startIcon={<AddIcon />}
-              onClick={() => handleOpenDialog(null, category.id)}
+              onClick={() => handleOpenDialog(undefined, category.id)}
             >
               Add Subcategory
             </Button>
@@ -263,7 +245,7 @@ const Categories: React.FC = () => {
                     'Are you sure you want to delete this category?'
                   )
                 ) {
-                  deleteMutation.mutate(category.id)
+                  handleDeleteCategory(category.id)
                 }
               }}
               disabled={category.businessCount ? category.businessCount > 0 : false}
@@ -302,6 +284,43 @@ const Categories: React.FC = () => {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             You don't have permission to access this page
+          </Typography>
+        </Box>
+      </Container>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <Container maxWidth="lg">
+        <Box
+          sx={{
+            textAlign: 'center',
+            py: 8,
+          }}
+        >
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            Loading...
+          </Typography>
+        </Box>
+      </Container>
+    )
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="lg">
+        <Box
+          sx={{
+            textAlign: 'center',
+            py: 8,
+          }}
+        >
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            Error
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {error.message}
           </Typography>
         </Box>
       </Container>
@@ -351,7 +370,7 @@ const Categories: React.FC = () => {
           fullWidth
         >
           <DialogTitle>
-            {selectedCategory
+            {selectedCategoryState
               ? 'Edit Category'
               : selectedParentId
               ? 'Add Subcategory'

@@ -8,6 +8,7 @@ export interface BusinessCategory {
   parentId?: string;
   createdAt: Date;
   updatedAt: Date;
+  isActive: boolean;
 }
 
 export interface ServiceCategory {
@@ -17,6 +18,11 @@ export interface ServiceCategory {
   businessCategoryId: string
   createdAt: Date
   updatedAt: Date
+  isActive: boolean
+}
+
+export interface Category extends BusinessCategory {
+  order: number;
 }
 
 export interface CreateBusinessCategoryInput {

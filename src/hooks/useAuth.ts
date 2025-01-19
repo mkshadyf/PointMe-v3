@@ -21,7 +21,7 @@ export const useAuth = () => {
 
   const login = useCallback(async (email: string, password: string) => {
     try {
-      const response = await authService.login(email, password);
+      const response = await authService.signInWithEmail(email, password);
       setUser(response.user);
       setSession(response.session);
       setIsAuthenticated(true);
@@ -33,7 +33,7 @@ export const useAuth = () => {
 
   const logout = useCallback(async () => {
     try {
-      await authService.logout();
+      await authService.signOut();
       setUser(null);
       setSession(null);
       setIsAuthenticated(false);
@@ -44,7 +44,7 @@ export const useAuth = () => {
 
   const register = useCallback(async (email: string, password: string, name: string) => {
     try {
-      const response = await authService.register(email, password, name);
+      const response = await authService.signUp(email, password, name);
       setUser(response.user);
       setSession(response.session);
       setIsAuthenticated(true);

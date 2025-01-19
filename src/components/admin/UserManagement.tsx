@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React, { useState } from 'react'
 import {
   Box,
   Container,
@@ -26,6 +26,8 @@ import {
   Select,
   Tooltip,
   Avatar,
+  ChipProps,
+  SelectChangeEvent,
 } from '@mui/material'
 import {
   Edit as EditIcon,
@@ -35,85 +37,67 @@ import {
   Delete as DeleteIcon,
   Search as SearchIcon,
 } from '@mui/icons-material'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import adminService from '../../services/adminService'
+import useSWR from 'swr'
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotification } from '../../contexts/NotificationContext'
 import { LoadingButton } from '@mui/lab'
 import { format } from 'date-fns'
-
-interface User {
-  id: string
-  email: string
-  name: string
-  role: string
-  status: string
-  createdAt: string
-  lastLogin: string
-  avatarUrl: string
-  businessId?: string
-  businessName?: string
-  reportCount: number
-}
+import { User, UserRole } from '@/types/user'
 
 interface FilterState {
-  role: string
-  status: string
-  search: string
+  role: string;
+  status: string;
+  search: string;
+}
+
+interface UpdateUserData {
+  role?: UserRole;
+  status?: string;
 }
 
 const UserManagement: React.FC = () => {
   const { user } = useAuthStore()
   const { showNotification } = useNotification()
-  const queryClient = useQueryClient()
-  const [page, setPage] = React.useState(0)
-  const [rowsPerPage, setRowsPerPage] = React.useState(10)
-  const [selectedUser, setSelectedUser] = React.useState<User | null>(null)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [filters, setFilters] = React.useState<FilterState>({
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [filters, setFilters] = useState<FilterState>({
     role: '',
     status: '',
     search: '',
   })
 
-  const { data: usersData, isLoading } = useQuery(
-    ['users', page, rowsPerPage, filters],
-    () =>
-      adminService.getUsers({
-        page,
-        limit: rowsPerPage,
-        ...filters,
-      })
+  const { data: users, error } = useSWR<User[]>(
+    createTrpcKey(['admin', 'users', 'getAll'], filters),
+    createTrpcFetcher(['admin', 'users', 'getAll'], filters)
   )
 
-  const updateUserMutation = useMutation(
-    (data: Partial<User>) => adminService.updateUser(data.id!, data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['users'])
-        showNotification('User updated successfully', 'success')
-        handleCloseDialog()
-      },
-      onError: () => {
-        showNotification('Failed to update user', 'error')
-      },
+  const updateUser = createTrpcMutation(['admin', 'users', 'update'])
+  const deleteUser = createTrpcMutation(['admin', 'users', 'delete'])
+
+  const handleUpdateUser = async (userId: string, data: UpdateUserData) => {
+    try {
+      await updateUser({ id: userId, ...data })
+      showNotification('User updated successfully', 'success')
+    } catch (error) {
+      console.error('Failed to update user:', error)
+      showNotification('Failed to update user', 'error')
     }
-  )
+  }
 
-  const deleteUserMutation = useMutation(
-    (id: string) => adminService.deleteUser(id),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(['users'])
-        showNotification('User deleted successfully', 'success')
-      },
-      onError: () => {
-        showNotification('Failed to delete user', 'error')
-      },
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      await deleteUser({ id: userId })
+      showNotification('User deleted successfully', 'success')
+    } catch (error) {
+      console.error('Failed to delete user:', error)
+      showNotification('Failed to delete user', 'error')
     }
-  )
+  }
 
-  const handleChangePage = (event: unknown, newPage: number) => {
+  const handleChangePage = (_event: unknown, newPage: number) => {
     setPage(newPage)
   }
 
@@ -143,10 +127,10 @@ const UserManagement: React.FC = () => {
   }
 
   const handleStatusChange = (userId: string, status: string) => {
-    updateUserMutation.mutate({ id: userId, status })
+    handleUpdateUser(userId, { status })
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): ChipProps['color'] => {
     switch (status.toLowerCase()) {
       case 'active':
         return 'success'
@@ -160,7 +144,7 @@ const UserManagement: React.FC = () => {
   }
 
   const UserDialog: React.FC = () => {
-    const [formData, setFormData] = React.useState({
+    const [formData, setFormData] = React.useState<UpdateUserData>({
       role: selectedUser?.role || '',
       status: selectedUser?.status || '',
     })
@@ -168,11 +152,17 @@ const UserManagement: React.FC = () => {
     const handleSubmit = (e: React.FormEvent) => {
       e.preventDefault()
       if (selectedUser) {
-        updateUserMutation.mutate({
-          id: selectedUser.id,
-          ...formData,
-        })
+        handleUpdateUser(selectedUser.id, formData)
+        handleCloseDialog()
       }
+    }
+
+    const handleRoleChange = (e: SelectChangeEvent<string>) => {
+      setFormData({ ...formData, role: e.target.value as UserRole })
+    }
+
+    const handleStatusChange = (e: SelectChangeEvent<string>) => {
+      setFormData({ ...formData, status: e.target.value })
     }
 
     return (
@@ -186,12 +176,10 @@ const UserManagement: React.FC = () => {
                 <Select
                   value={formData.role}
                   label="Role"
-                  onChange={(e) =>
-                    setFormData({ ...formData, role: e.target.value })
-                  }
+                  onChange={handleRoleChange}
                 >
                   <MenuItem value="user">User</MenuItem>
-                  <MenuItem value="business">Business</MenuItem>
+                  <MenuItem value="business_owner">Business Owner</MenuItem>
                   <MenuItem value="admin">Admin</MenuItem>
                 </Select>
               </FormControl>
@@ -200,9 +188,7 @@ const UserManagement: React.FC = () => {
                 <Select
                   value={formData.status}
                   label="Status"
-                  onChange={(e) =>
-                    setFormData({ ...formData, status: e.target.value })
-                  }
+                  onChange={handleStatusChange}
                 >
                   <MenuItem value="active">Active</MenuItem>
                   <MenuItem value="suspended">Suspended</MenuItem>
@@ -213,12 +199,7 @@ const UserManagement: React.FC = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
-            <LoadingButton
-              type="submit"
-              loading={updateUserMutation.isLoading}
-            >
-              Update
-            </LoadingButton>
+            <LoadingButton type="submit">Update</LoadingButton>
           </DialogActions>
         </form>
       </Dialog>
@@ -279,7 +260,7 @@ const UserManagement: React.FC = () => {
                 >
                   <MenuItem value="">All</MenuItem>
                   <MenuItem value="user">User</MenuItem>
-                  <MenuItem value="business">Business</MenuItem>
+                  <MenuItem value="business_owner">Business Owner</MenuItem>
                   <MenuItem value="admin">Admin</MenuItem>
                 </Select>
               </FormControl>
@@ -318,18 +299,18 @@ const UserManagement: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {usersData?.users.map((user) => (
+              {users?.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <Box display="flex" alignItems="center">
                       <Avatar
-                        src={user.avatarUrl}
+                        src={user.avatar_url}
                         sx={{ width: 32, height: 32, mr: 1 }}
                       >
-                        {user.name[0]}
+                        {user.name?.[0] || user.email[0]}
                       </Avatar>
                       <Box>
-                        <Typography variant="body2">{user.name}</Typography>
+                        <Typography variant="body2">{user.name || user.email}</Typography>
                         <Typography
                           variant="caption"
                           color="text.secondary"
@@ -346,7 +327,7 @@ const UserManagement: React.FC = () => {
                       color={
                         user.role === 'admin'
                           ? 'error'
-                          : user.role === 'business'
+                          : user.role === 'business_owner'
                           ? 'primary'
                           : 'default'
                       }
@@ -413,7 +394,7 @@ const UserManagement: React.FC = () => {
                             'Are you sure you want to delete this user?'
                           )
                         ) {
-                          deleteUserMutation.mutate(user.id)
+                          handleDeleteUser(user.id)
                         }
                       }}
                     >
@@ -427,7 +408,7 @@ const UserManagement: React.FC = () => {
           <TablePagination
             rowsPerPageOptions={[5, 10, 25]}
             component="div"
-            count={usersData?.total || 0}
+            count={users?.length || 0}
             rowsPerPage={rowsPerPage}
             page={page}
             onPageChange={handleChangePage}
@@ -442,4 +423,3 @@ const UserManagement: React.FC = () => {
 }
 
 export default UserManagement
-

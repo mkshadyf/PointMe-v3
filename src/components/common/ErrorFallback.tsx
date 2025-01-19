@@ -1,15 +1,19 @@
 import React from 'react'
 import {
-  Box,
-  Button,
   Container,
   Paper,
   Typography,
+  Button,
+  Stack,
+  Box,
   useTheme,
 } from '@mui/material'
 import { ErrorOutline as ErrorIcon } from '@mui/icons-material'
-import { FallbackProps } from '@sentry/react'
-import { isAppError, getUserFriendlyErrorMessage } from '../../utils/errorHandling'
+
+interface FallbackProps {
+  error: Error
+  resetError: () => void
+}
 
 const ErrorFallback: React.FC<FallbackProps> = ({
   error,
@@ -17,8 +21,13 @@ const ErrorFallback: React.FC<FallbackProps> = ({
 }) => {
   const theme = useTheme()
 
-  const errorMessage = getUserFriendlyErrorMessage(error)
-  const isAppErr = isAppError(error)
+  const handleReload = () => {
+    window.location.reload()
+  }
+
+  const handleGoBack = () => {
+    window.history.back()
+  }
 
   return (
     <Container maxWidth="sm">
@@ -36,27 +45,15 @@ const ErrorFallback: React.FC<FallbackProps> = ({
           color="error"
           sx={{ fontSize: 64, mb: 2 }}
         />
-        
-        <Typography variant="h6" color="error" gutterBottom>
-          {errorMessage}
+        <Typography variant="h5" gutterBottom>
+          Oops! Something went wrong
         </Typography>
-
-        {isAppErr && error.httpStatus && (
-          <Typography
-            variant="subtitle2"
-            color="text.secondary"
-            gutterBottom
-          >
-            Error Code: {error.httpStatus}
-          </Typography>
-        )}
-
         <Typography
-          variant="body2"
+          variant="body1"
           color="text.secondary"
-          sx={{ mt: 1, mb: 3 }}
+          sx={{ mb: 3 }}
         >
-          We apologize for the inconvenience. Please try again or contact
+          We're sorry for the inconvenience. Please try again or contact
           support if the problem persists.
         </Typography>
 
@@ -71,34 +68,30 @@ const ErrorFallback: React.FC<FallbackProps> = ({
               textAlign: 'left',
             }}
           >
-            <Typography
-              variant="caption"
-              component="pre"
-              sx={{
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {error.stack}
+            <Typography variant="subtitle2" color="error">
+              {error.toString()}
             </Typography>
           </Box>
         )}
 
-        <Box sx={{ mt: 3 }}>
-          <Button
-            variant="contained"
-            onClick={resetError}
-            sx={{ mr: 2 }}
-          >
-            Try Again
-          </Button>
+        <Stack
+          direction="row"
+          spacing={2}
+          justifyContent="center"
+        >
           <Button
             variant="outlined"
-            onClick={() => window.location.href = '/'}
+            onClick={handleGoBack}
           >
-            Go to Home
+            Go Back
           </Button>
-        </Box>
+          <Button
+            variant="contained"
+            onClick={handleReload}
+          >
+            Reload Page
+          </Button>
+        </Stack>
       </Paper>
     </Container>
   )

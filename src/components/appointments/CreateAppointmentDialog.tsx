@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -19,17 +19,19 @@ import { DateTimePicker } from '@mui/x-date-pickers'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQuery, useQueryClient } from 'react-query'
-import appointmentService from '../../services/appointmentService'
-import businessService from '../../../services/businessService'
-import type { Service } from '../../types/business'
-import type { CreateAppointmentInput } from '../../types/appointment'
-import { useAuthStore } from '../../stores/authStore'
+import useSWR, { useSWRConfig } from 'swr'
+import { appointmentService } from '@/services/appointmentService'
+import serviceService  from '@/services/serviceService'
+import type { Service } from '@/types/business'
+import type { CreateAppointmentInput } from '@/types/appointment'
+import { useAuthStore } from '@/stores/authStore'
 import { format } from 'date-fns'
 
 interface CreateAppointmentDialogProps {
   open: boolean
   onClose: () => void
+  businessId: string
+  staffId: string
   selectedDate: Date
 }
 
@@ -48,26 +50,17 @@ type AppointmentFormData = z.infer<typeof appointmentSchema>
 const CreateAppointmentDialog: React.FC<CreateAppointmentDialogProps> = ({
   open,
   onClose,
+  businessId,
+  staffId,
   selectedDate,
 }) => {
-  const queryClient = useQueryClient()
-  const { user } = useAuthStore()
-
-  const { data: services } = useQuery(
-    ['services', user?.id],
-    () => businessService.getServices(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { mutate } = useSWRConfig()
+  const { data: services, error: servicesError } = useSWR(
+    ['services', businessId],
+    () => serviceService.getServices(businessId)
   )
 
-  const {
-    control,
-    handleSubmit,
-    watch,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<AppointmentFormData>({
+  const { control, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = useForm<AppointmentFormData>({
     resolver: zodResolver(appointmentSchema),
     defaultValues: {
       customerName: '',
@@ -84,36 +77,30 @@ const CreateAppointmentDialog: React.FC<CreateAppointmentDialogProps> = ({
     (service) => service.id === selectedServiceId
   )
 
-  const createMutation = useMutation(
-    (data: any) => appointmentService.createAppointment({
-      businessId: user!.id,
-      serviceId: data.serviceId,
-      date: format(data.startTime, 'yyyy-MM-dd'),
-      startTime: format(data.startTime, 'HH:mm'),
-      customerId: data.customerId,
-      notes: data.notes
-    }),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('appointments')
-        handleClose()
-      },
+  const onSubmit = async (data: AppointmentFormData) => {
+    try {
+      const startTime = new Date(data.startTime)
+      const date = format(startTime, 'yyyy-MM-dd')
+      
+      await appointmentService.createAppointment({
+        ...data,
+        date,
+        startTime: format(startTime, 'HH:mm'),
+        businessId,
+        customerId: data.customerId || undefined
+      })
+      
+      onClose()
+      // showNotification('Appointment created successfully', { type: 'success' })
+    } catch (error) {
+      console.error('Failed to create appointment:', error)
+      // showNotification('Failed to create appointment', { type: 'error' })
     }
-  )
+  }
 
   const handleClose = () => {
     reset()
     onClose()
-  }
-
-  const onSubmit = async (data: any) => {
-    try {
-      await createMutation.mutateAsync(data)
-      // Show success notification
-    } catch (error) {
-      console.error('Failed to create appointment:', error)
-      // Show error notification
-    }
   }
 
   return (
@@ -278,4 +265,3 @@ const CreateAppointmentDialog: React.FC<CreateAppointmentDialogProps> = ({
 }
 
 export default CreateAppointmentDialog
-

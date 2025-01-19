@@ -1,13 +1,12 @@
-import { router } from '../trpc';
-import { businessRouter } from './business';
-import { notificationRouter } from './notification';
-import { messageRouter } from './message';
+import { router } from '../trpc'
+import { messageRouter } from './message'
+import { notificationRouter } from './notification'
+import { adminRouter } from './admin'
 
 export const appRouter = router({
-  business: businessRouter,
-  notification: notificationRouter,
   message: messageRouter,
-});
+  notification: notificationRouter,
+  admin: adminRouter,
+})
 
-export type AppRouter = typeof appRouter;
-
+export type AppRouter = typeof appRouter

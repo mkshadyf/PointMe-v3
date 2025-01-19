@@ -4,6 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Accordion, AccordionSummary, AccordionDetails } from '@mui/material'
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material'
+import useSWR, { mutate } from 'swr'
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '../utils/swr-helpers'
 import { trpc } from '../utils/trpc'
 import { CreateServiceInput, UpdateServiceInput, Service } from '../types/service'
 import RoleBasedAccess from './RoleBasedAccess'
@@ -30,21 +32,25 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
     resolver: zodResolver(serviceSchema),
   })
 
-  const createServiceMutation = trpc.business.createService.useMutation()
-  const updateServiceMutation = trpc.business.updateService.useMutation()
-  const servicesQuery = trpc.business.getBusinessServices.useQuery(businessId)
+  const { data: services, error: servicesError } = useSWR(
+    createTrpcKey(['business', 'getBusinessServices'], businessId),
+    createTrpcFetcher(['business', 'getBusinessServices'], businessId)
+  )
+
+  const createService = createTrpcMutation(['business', 'createService'])
+  const updateService = createTrpcMutation(['business', 'updateService'])
 
   const onSubmit = async (data: CreateServiceInput) => {
     try {
       if (editingService) {
-        await updateServiceMutation.mutateAsync({ id: editingService.id!, data })
+        await updateService({ id: editingService.id!, data })
       } else {
-        await createServiceMutation.mutateAsync({ ...data, businessId })
+        await createService({ ...data, businessId })
       }
+      await mutate(createTrpcKey(['business', 'getBusinessServices'], businessId))
       reset()
       setIsDialogOpen(false)
       setEditingService(null)
-      servicesQuery.refetch()
     } catch (error) {
       console.error('Failed to save service:', error)
     }
@@ -56,7 +62,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
   }
 
   const handleSearch = (searchTerm: string, priceRange: [number, number], duration: number | null) => {
-    const filtered = servicesQuery.data?.filter((service) => {
+    const filtered = services?.filter((service) => {
       const matchesSearch = service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         service.description.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesPrice = service.price >= priceRange[0] && service.price <= priceRange[1]
@@ -66,7 +72,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
     setFilteredServices(filtered || [])
   }
 
-  const displayedServices = filteredServices.length > 0 ? filteredServices : servicesQuery.data || []
+  const displayedServices = filteredServices.length > 0 ? filteredServices : services || []
 
   return (
     <Box>
@@ -79,9 +85,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
           Add New Service
         </Button>
       </RoleBasedAccess>
-      {servicesQuery.isLoading ? (
-        <Typography>Loading services...</Typography>
-      ) : servicesQuery.isError ? (
+      {servicesError ? (
         <Typography color="error">Error loading services</Typography>
       ) : (
         <List>
@@ -92,13 +96,13 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
                   <ListItemText 
                     primary={service.name} 
                     secondary={
-                      <>
+                      <React.Fragment>
                         <Typography component="span" variant="body2" color="text.primary">
                           ${service.price.toFixed(2)} - {service.duration} minutes
                         </Typography>
                         <br />
                         {service.description}
-                      </>
+                      </React.Fragment>
                     }
                   />
                 </AccordionSummary>
@@ -203,4 +207,3 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => 
 }
 
 export default ServiceManagement
-

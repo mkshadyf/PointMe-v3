@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, ListItemSecondaryAction } from '@mui/material';
 import { Link } from 'react-router-dom';
-import { trpc } from '../utils/trpc';
-import { CreateBusinessInput } from '../types/business';
+import useSWR, { mutate } from 'swr';
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers';
+import { CreateBusinessInput, UpdateBusinessInput } from '../types/business';
 import RoleBasedAccess from './RoleBasedAccess';
 
 const createBusinessSchema = z.object({
@@ -22,14 +23,18 @@ const BusinessManagement: React.FC<BusinessManagementProps> = ({ onSelectBusines
     resolver: zodResolver(createBusinessSchema),
   })
 
-  const createBusinessMutation = trpc.business.create.useMutation()
-  const ownedBusinessesQuery = trpc.business.getOwned.useQuery()
+  const { data: businesses, error } = useSWR(
+    createTrpcKey(['business', 'getOwned']),
+    createTrpcFetcher(['business', 'getOwned'])
+  )
 
-  const onSubmit = async (data: CreateBusinessInput) => {
+  const createBusiness = createTrpcMutation(['business', 'create'])
+
+  const handleCreateBusiness = async (data: CreateBusinessInput) => {
     try {
-      await createBusinessMutation.mutateAsync(data)
+      await createBusiness(data)
+      await mutate(createTrpcKey(['business', 'getOwned']))
       reset()
-      ownedBusinessesQuery.refetch()
     } catch (error) {
       console.error('Failed to create business:', error)
     }
@@ -41,7 +46,7 @@ const BusinessManagement: React.FC<BusinessManagementProps> = ({ onSelectBusines
         Manage Your Businesses
       </Typography>
       <RoleBasedAccess allowedRoles={['business_owner', 'admin']}>
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
+        <Box component="form" onSubmit={handleSubmit(handleCreateBusiness)} noValidate sx={{ mt: 1 }}>
           <Controller
             name="name"
             control={control}
@@ -86,13 +91,13 @@ const BusinessManagement: React.FC<BusinessManagementProps> = ({ onSelectBusines
       <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
         Your Businesses
       </Typography>
-      {ownedBusinessesQuery.isLoading ? (
-        <Typography>Loading...</Typography>
-      ) : ownedBusinessesQuery.isError ? (
+      {error ? (
         <Typography color="error">Error loading businesses</Typography>
+      ) : !businesses ? (
+        <Typography>Loading...</Typography>
       ) : (
         <List>
-          {ownedBusinessesQuery.data?.map((business) => (
+          {businesses.map((business) => (
             <ListItem key={business.id}>
               <ListItemText primary={business.name} secondary={business.description} />
               <ListItemSecondaryAction>
@@ -112,4 +117,3 @@ const BusinessManagement: React.FC<BusinessManagementProps> = ({ onSelectBusines
 };
 
 export default BusinessManagement;
-

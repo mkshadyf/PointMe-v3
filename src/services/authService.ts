@@ -1,66 +1,72 @@
-import { supabase } from '../lib/supabase'
-import { User } from '../types/user'
+import { createClient } from '../lib/supabase'
+import { type User } from '../types/user'
 
 interface AuthResponse {
   user: User | null
-  session: any | null
   error: Error | null
 }
 
+interface UserMetadata {
+  name?: string
+  role?: string
+  avatarUrl?: string
+}
+
+const supabase = createClient()
+
 const authService = {
-  async signInWithEmail(email: string, password: string): Promise<AuthResponse> {
+  async signUp(email: string, password: string, metadata: UserMetadata): Promise<AuthResponse> {
     try {
-      const { data: { user, session }, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
-      })
-
-      if (error) throw error
-
-      return {
-        user: user ? {
-          id: user.id,
-          email: user.email!,
-          name: user.user_metadata.full_name || '',
-          role: user.user_metadata.role || 'user',
-        } : null,
-        session,
-        error: null
-      }
-    } catch (error) {
-      return {
-        user: null,
-        session: null,
-        error: error as Error
-      }
-    }
-  },
-
-  async signInWithGoogle(): Promise<AuthResponse> {
-    try {
-      const { data: { user, session }, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          data: metadata
         }
       })
 
       if (error) throw error
 
       return {
-        user: user ? {
-          id: user.id,
-          email: user.email!,
-          name: user.user_metadata.full_name || '',
-          role: user.user_metadata.role || 'user',
+        user: data.user ? {
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.user_metadata?.name,
+          role: data.user.user_metadata?.role,
+          avatarUrl: data.user.user_metadata?.avatarUrl
         } : null,
-        session,
         error: null
       }
     } catch (error) {
       return {
         user: null,
-        session: null,
+        error: error as Error
+      }
+    }
+  },
+
+  async signIn(email: string, password: string): Promise<AuthResponse> {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (error) throw error
+
+      return {
+        user: data.user ? {
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.user_metadata?.name,
+          role: data.user.user_metadata?.role,
+          avatarUrl: data.user.user_metadata?.avatarUrl
+        } : null,
+        error: null
+      }
+    } catch (error) {
+      return {
+        user: null,
         error: error as Error
       }
     }
@@ -70,41 +76,66 @@ const authService = {
     await supabase.auth.signOut()
   },
 
-  async refreshSession(): Promise<AuthResponse> {
+  async resetPassword(email: string): Promise<{ error: Error | null }> {
     try {
-      const { data: { user, session }, error } = await supabase.auth.refreshSession()
+      const { error } = await supabase.auth.resetPasswordForEmail(email)
+      if (error) throw error
+      return { error: null }
+    } catch (error) {
+      return { error: error as Error }
+    }
+  },
+
+  async updatePassword(newPassword: string): Promise<{ error: Error | null }> {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+      if (error) throw error
+      return { error: null }
+    } catch (error) {
+      return { error: error as Error }
+    }
+  },
+
+  async getCurrentUser(): Promise<User | null> {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) return null
+
+    return {
+      id: user.id,
+      email: user.email!,
+      name: user.user_metadata?.name,
+      role: user.user_metadata?.role,
+      avatarUrl: user.user_metadata?.avatarUrl
+    }
+  },
+
+  async updateProfile(updates: Partial<UserMetadata>): Promise<{ error: Error | null }> {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: updates
+      })
 
       if (error) throw error
-
-      return {
-        user: user ? {
-          id: user.id,
-          email: user.email!,
-          name: user.user_metadata.full_name || '',
-          role: user.user_metadata.role || 'user',
-        } : null,
-        session,
-        error: null
-      }
+      return { error: null }
     } catch (error) {
-      return {
-        user: null,
-        session: null,
-        error: error as Error
-      }
+      return { error: error as Error }
     }
   },
 
   onAuthStateChange(callback: (user: User | null) => void) {
     return supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const user: User = {
-          id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata.full_name || '',
-          role: session.user.user_metadata.role || 'user',
-        }
-        callback(user)
+      const user = session?.user
+      if (user) {
+        callback({
+          id: user.id,
+          email: user.email!,
+          name: user.user_metadata?.name,
+          role: user.user_metadata?.role,
+          avatarUrl: user.user_metadata?.avatarUrl
+        })
       } else {
         callback(null)
       }

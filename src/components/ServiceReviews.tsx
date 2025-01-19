@@ -1,10 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Rating } from '@mui/material'
-import { trpc } from '../utils/trpc'
-import { CreateReviewInput } from '../types/review'
+import useSWR, { mutate } from 'swr'
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers'
+import { CreateReviewInput } from '@/types/review'
 
 const createReviewSchema = z.object({
   rating: z.number().min(1).max(5),
@@ -15,19 +16,23 @@ interface ServiceReviewsProps {
   serviceId: string
 }
 
-const ServiceReviews: React.FC<ServiceReviewsProps> = ({ serviceId }) => {
+export default function ServiceReviews({ serviceId }: ServiceReviewsProps) {
   const { control, handleSubmit, reset } = useForm<CreateReviewInput>({
     resolver: zodResolver(createReviewSchema),
   })
 
-  const createReviewMutation = trpc.business.createReview.useMutation()
-  const reviewsQuery = trpc.business.getServiceReviews.useQuery(serviceId)
+  const { data: reviews, error } = useSWR(
+    createTrpcKey(['business', 'reviews', 'getServiceReviews'], serviceId),
+    createTrpcFetcher(['business', 'reviews', 'getServiceReviews'], serviceId)
+  )
 
-  const onSubmit = async (data: CreateReviewInput) => {
+  const createReview = createTrpcMutation(['business', 'reviews', 'create'])
+
+  const handleCreateReview = async (data: CreateReviewInput) => {
     try {
-      await createReviewMutation.mutateAsync({ ...data, serviceId })
+      await createReview({ ...data, serviceId })
+      await mutate(createTrpcKey(['business', 'reviews', 'getServiceReviews'], serviceId))
       reset()
-      reviewsQuery.refetch()
     } catch (error) {
       console.error('Failed to create review:', error)
     }
@@ -38,7 +43,7 @@ const ServiceReviews: React.FC<ServiceReviewsProps> = ({ serviceId }) => {
       <Typography variant="h6" gutterBottom>
         Reviews
       </Typography>
-      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
+      <Box component="form" onSubmit={handleSubmit(handleCreateReview)} noValidate sx={{ mt: 1 }}>
         <Controller
           name="rating"
           control={control}
@@ -74,13 +79,13 @@ const ServiceReviews: React.FC<ServiceReviewsProps> = ({ serviceId }) => {
           Submit Review
         </Button>
       </Box>
-      {reviewsQuery.isLoading ? (
-        <Typography>Loading reviews...</Typography>
-      ) : reviewsQuery.isError ? (
+      {error ? (
         <Typography color="error">Error loading reviews</Typography>
+      ) : !reviews ? (
+        <Typography>Loading reviews...</Typography>
       ) : (
         <List>
-          {reviewsQuery.data?.map((review) => (
+          {reviews.map((review) => (
             <ListItem key={review.id}>
               <ListItemText
                 primary={
@@ -110,6 +115,3 @@ const ServiceReviews: React.FC<ServiceReviewsProps> = ({ serviceId }) => {
     </Box>
   )
 }
-
-export default ServiceReviews
-

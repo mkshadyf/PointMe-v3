@@ -3,7 +3,8 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Rating } from '@mui/material';
-import { trpc } from '../utils/trpc';
+import useSWR, { mutate } from 'swr';
+import { createTrpcFetcher, createTrpcKey, createTrpcMutation } from '@/utils/swr-helpers';
 import { CreateBusinessReviewInput } from '../types/review';
 
 const createReviewSchema = z.object({
@@ -20,14 +21,18 @@ const BusinessReviews: React.FC<BusinessReviewsProps> = ({ businessId }) => {
     resolver: zodResolver(createReviewSchema),
   });
 
-  const createReviewMutation = trpc.business.createBusinessReview.useMutation();
-  const reviewsQuery = trpc.business.getBusinessReviews.useQuery(businessId);
+  const { data: reviews, error } = useSWR(
+    createTrpcKey(['business', 'reviews', 'getBusinessReviews'], businessId),
+    createTrpcFetcher(['business', 'reviews', 'getBusinessReviews'], businessId)
+  );
+
+  const createReviewMutation = createTrpcMutation(['business', 'reviews', 'createBusinessReview']);
 
   const onSubmit = async (data: CreateBusinessReviewInput) => {
     try {
-      await createReviewMutation.mutateAsync({ ...data, businessId });
+      await createReviewMutation({ ...data, businessId });
       reset();
-      reviewsQuery.refetch();
+      await mutate(createTrpcKey(['business', 'reviews', 'getBusinessReviews'], businessId));
     } catch (error) {
       console.error('Failed to create review:', error);
     }
@@ -74,13 +79,13 @@ const BusinessReviews: React.FC<BusinessReviewsProps> = ({ businessId }) => {
           Submit Review
         </Button>
       </Box>
-      {reviewsQuery.isLoading ? (
-        <Typography>Loading reviews...</Typography>
-      ) : reviewsQuery.isError ? (
+      {error ? (
         <Typography color="error">Error loading reviews</Typography>
+      ) : !reviews ? (
+        <Typography>Loading reviews...</Typography>
       ) : (
         <List>
-          {reviewsQuery.data?.map((review) => (
+          {reviews.map((review) => (
             <ListItem key={review.id}>
               <ListItemText
                 primary={
@@ -112,4 +117,3 @@ const BusinessReviews: React.FC<BusinessReviewsProps> = ({ businessId }) => {
 };
 
 export default BusinessReviews;
-

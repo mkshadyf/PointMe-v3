@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Container,
   Grid,
@@ -9,14 +9,15 @@ import {
   Tab,
   CircularProgress,
 } from '@mui/material'
-import { useQuery } from 'react-query'
+import useSWR from 'swr'
 import { useAuthStore } from '../../stores/authStore'
-import businessService from '../../services/businessService'
+import { businessService } from '@/services/businessService'
 import BusinessProfile from './settings/BusinessProfile'
 import BusinessHoursSettings from './settings/BusinessHoursSettings'
 import ServiceSettings from './settings/ServiceSettings'
 import PaymentSettings from './settings/PaymentSettings'
 import NotificationSettings from './settings/NotificationSettings'
+import { Business } from '@/types/business'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -39,12 +40,9 @@ const BusinessSettings: React.FC = () => {
   const [tabValue, setTabValue] = React.useState(0)
   const { user } = useAuthStore()
 
-  const { data: business, isLoading } = useQuery(
-    ['business', user?.id],
-    () => businessService.getBusinessByOwnerId(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: business, error, isLoading } = useSWR<Business>(
+    user ? ['businessSettings', user.id] : null,
+    () => businessService.getBusinessSettings(user?.id)
   )
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -59,7 +57,7 @@ const BusinessSettings: React.FC = () => {
     )
   }
 
-  if (!business) {
+  if (error || !business) {
     return (
       <Box textAlign="center" p={3}>
         <Typography variant="h6" color="text.secondary">
@@ -115,4 +113,3 @@ const BusinessSettings: React.FC = () => {
 }
 
 export default BusinessSettings
-

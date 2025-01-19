@@ -19,17 +19,20 @@ import { DateTimePicker } from '@mui/x-date-pickers';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation, useQuery, useQueryClient } from 'react-query';
-import appointmentService from '../../services/appointmentService';
-import businessService from '../../../services/businessService';
+import useSWR, { useSWRConfig } from 'swr';
+import { appointmentService } from '@/services/appointmentService';
+import serviceService from '@/services/serviceService';
 import type { Appointment } from '../../types/appointment';
 import { parseISO } from 'date-fns';
 import { useAuthStore } from '../../stores/authStore';
+import { format } from 'date-fns';
+import { showNotification } from '../../utils/notification';
 
 interface EditAppointmentDialogProps {
   appointment: Appointment
   open: boolean
   onClose: () => void
+  businessId: string
 }
 
 const appointmentSchema = z.object({
@@ -49,16 +52,14 @@ const EditAppointmentDialog: React.FC<EditAppointmentDialogProps> = ({
   appointment,
   open,
   onClose,
+  businessId,
 }) => {
-  const queryClient = useQueryClient()
+  const { mutate } = useSWRConfig()
   const { user } = useAuthStore()
 
-  const { data: services } = useQuery(
-    ['services', user?.id],
-    () => businessService.getServices(user!.id),
-    {
-      enabled: !!user,
-    }
+  const { data: services, error: servicesError } = useSWR(
+    ['services', businessId],
+    () => serviceService.getServices(businessId)
   )
 
   const {
@@ -85,37 +86,28 @@ const EditAppointmentDialog: React.FC<EditAppointmentDialogProps> = ({
     (service) => service.id === selectedServiceId
   )
 
-  const updateMutation = useMutation(
-    (data: AppointmentFormData) =>
-      appointmentService.updateAppointment(appointment.id, {
-        status: data.status,
-        serviceId: data.serviceId,
-        date: format(data.startTime, 'yyyy-MM-dd'),
-        startTime: format(data.startTime, 'HH:mm'),
-        customerId: data.customerId,
-        notes: data.notes
-      }),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('appointments')
-        handleClose()
-      },
+  const onSubmit = async (data: AppointmentFormData) => {
+    try {
+      const startTime = new Date(data.startTime || appointment.startTime)
+      const date = format(startTime, 'yyyy-MM-dd')
+      
+      await appointmentService.updateAppointment(appointment.id, {
+        ...data,
+        date,
+        startTime: format(startTime, 'HH:mm')
+      })
+      
+      onClose()
+      showNotification('Appointment updated successfully', { type: 'success' })
+    } catch (error) {
+      console.error('Failed to update appointment:', error)
+      showNotification('Failed to update appointment', { type: 'error' })
     }
-  )
+  }
 
   const handleClose = () => {
     reset()
     onClose()
-  }
-
-  const onSubmit = async (data: AppointmentFormData) => {
-    try {
-      await updateMutation.mutateAsync(data)
-      // Show success notification
-    } catch (error) {
-      console.error('Failed to update appointment:', error)
-      // Show error notification
-    }
   }
 
   return (
