@@ -4,8 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Rating } from '@mui/material'
 import { trpc } from '../utils/trpc'
-import { CreateReviewInput } from '../types/review'
-
+import { CreateReviewInput } from '@/types'
+ 
 const createReviewSchema = z.object({
   rating: z.number().min(1).max(5),
   comment: z.string().min(1, 'Comment is required').max(500, 'Comment must be 500 characters or less'),

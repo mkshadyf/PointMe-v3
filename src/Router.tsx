@@ -1,30 +1,41 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Home from './components/Home';
-import Login from './components/Login';
-import Dashboard from './components/Dashboard';
-import PublicBusinessPage from './components/PublicBusinessPage';
-import ProtectedRoute from './components/ProtectedRoute';
+import { useState } from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import Dashboard from './components/Dashboard'
+import PublicBusinessPage from './components/PublicBusinessPage'
+import LoginForm from './components/LoginForm'
+import Home from './components/Home'
+ import ProtectedRoute from './components/ProtectedRoute'
 
-const Router: React.FC = () => {
+export default function AppRouter() {
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null)
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+
+  const handleSelectBusiness = (businessId: string | null) => {
+    setSelectedBusinessId(businessId)
+    // Reset service selection when business changes
+    setSelectedServiceId(null)
+  }
+
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<LoginForm />} />
         <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <Dashboard />
+              <Dashboard
+                selectedBusinessId={selectedBusinessId}
+                selectedServiceId={selectedServiceId}
+                onSelectBusiness={handleSelectBusiness}
+                setSelectedServiceId={setSelectedServiceId}
+              />
             </ProtectedRoute>
           }
         />
-        <Route path="/business/:businessId" element={<PublicBusinessPage />} />
+        <Route path="/business/:id" element={<PublicBusinessPage />} />
       </Routes>
-    </BrowserRouter>
-  );
-};
-
-export default Router;
-
+    </Router>
+  )
+}

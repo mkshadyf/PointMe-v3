@@ -1,20 +1,26 @@
-import React from 'react'
-import { Navigate } from 'react-router-dom'
-import { useAuthStore } from '../stores/authStore'
+import { ReactNode } from 'react'
+import { Navigate } from '@tanstack/react-router'
+import { useAuth } from '../contexts/AuthContext'
 
 interface ProtectedRouteProps {
-  children: React.ReactNode
+  children: ReactNode
+  roles?: string[]
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+export default function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
+  const { user, isAuthenticated, isLoading } = useAuth()
+
+  if (isLoading) {
+    return <div>Loading...</div>
+  }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/login" />
+  }
+
+  if (roles && !roles.some(role => user?.roles?.includes(role))) {
+    return <Navigate to="/unauthorized" />
   }
 
   return <>{children}</>
 }
-
-export default ProtectedRoute
-

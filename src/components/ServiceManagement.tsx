@@ -1,206 +1,256 @@
-import React, { useState } from 'react'
-import { useForm, Controller } from 'react-hook-form'
+import { SetStateAction, useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Accordion, AccordionSummary, AccordionDetails } from '@mui/material'
-import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material'
+import {
+  Box,
+  Button,
+  TextField,
+  Typography,
+  Card,
+  CardContent,
+  CardActions,
+  Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Alert
+} from '@mui/material'
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material'
 import { trpc } from '../utils/trpc'
-import { CreateServiceInput, UpdateServiceInput, Service } from '../types/service'
-import RoleBasedAccess from './RoleBasedAccess'
-import ServiceReviews from './ServiceReviews'
-import ServiceSearch from './ServiceSearch'
+import { Service } from '../types'
 
 const serviceSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or less'),
-  description: z.string().min(1, 'Description is required').max(500, 'Description must be 500 characters or less'),
-  price: z.number().positive('Price must be positive'),
-  duration: z.number().int().positive('Duration must be a positive integer'),
+  name: z.string().min(1, 'Name is required'),
+  description: z.string().min(1, 'Description is required'),
+  price: z.number().min(0, 'Price must be positive'),
+  duration: z.number().min(15, 'Duration must be at least 15 minutes')
 })
+
+type ServiceFormData = z.infer<typeof serviceSchema>
+
+interface ServiceCardProps {
+  service: Service
+  onEdit: (service: Service) => void
+  onDelete: (serviceId: string) => void
+}
+
+function ServiceCard({ service, onEdit, onDelete }: ServiceCardProps) {
+  return (
+    <Card>
+      <CardContent>
+        <Typography variant="h6">{service.name}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {service.description}
+        </Typography>
+        <Typography variant="body1">
+          Price: ${service.price.toFixed(2)}
+        </Typography>
+        <Typography variant="body1">
+          Duration: {service.duration} minutes
+        </Typography>
+      </CardContent>
+      <CardActions>
+        <IconButton onClick={() => onEdit(service)}>
+          <EditIcon />
+        </IconButton>
+        <IconButton onClick={() => onDelete(service.id)}>
+          <DeleteIcon />
+        </IconButton>
+      </CardActions>
+    </Card>
+  )
+}
 
 interface ServiceManagementProps {
   businessId: string
 }
 
-const ServiceManagement: React.FC<ServiceManagementProps> = ({ businessId }) => {
+export default function ServiceManagement({ businessId }: ServiceManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingService, setEditingService] = useState<UpdateServiceInput | null>(null)
-  const [filteredServices, setFilteredServices] = useState<Service[]>([])
+  const [editingService, setEditingService] = useState<Service | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const { control, handleSubmit, reset } = useForm<CreateServiceInput>({
-    resolver: zodResolver(serviceSchema),
+  const utils = trpc.useContext()
+  
+  const { data: services } = trpc.service.list.useQuery({ businessId })
+  
+  const createMutation = trpc.service.create.useMutation({
+    onSuccess: () => {
+      utils.service.list.invalidate({ businessId })
+      setIsDialogOpen(false)
+      reset()
+    },
+    onError: (error: { message: SetStateAction<string | null> }) => {
+      setError(error.message)
+    }
   })
 
-  const createServiceMutation = trpc.business.createService.useMutation()
-  const updateServiceMutation = trpc.business.updateService.useMutation()
-  const servicesQuery = trpc.business.getBusinessServices.useQuery(businessId)
-
-  const onSubmit = async (data: CreateServiceInput) => {
-    try {
-      if (editingService) {
-        await updateServiceMutation.mutateAsync({ id: editingService.id!, data })
-      } else {
-        await createServiceMutation.mutateAsync({ ...data, businessId })
-      }
-      reset()
+  const updateMutation = trpc.service.update.useMutation({
+    onSuccess: () => {
+      utils.service.list.invalidate({ businessId })
       setIsDialogOpen(false)
       setEditingService(null)
-      servicesQuery.refetch()
-    } catch (error) {
-      console.error('Failed to save service:', error)
+      reset()
+    },
+    onError: (error: { message: SetStateAction<string | null> }) => {
+      setError(error.message)
     }
-  }
+  })
 
-  const handleEditService = (service: UpdateServiceInput) => {
-    setEditingService(service)
+  const deleteMutation = trpc.service.delete.useMutation({
+    onSuccess: () => {
+      utils.service.list.invalidate({ businessId })
+    },
+    onError: (error: { message: SetStateAction<string | null> }) => {
+      setError(error.message)
+    }
+  })
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors }
+  } = useForm<ServiceFormData>({
+    resolver: zodResolver(serviceSchema),
+    defaultValues: editingService || {
+      name: '',
+      description: '',
+      price: 0,
+      duration: 30
+    }
+  })
+
+  const handleOpenDialog = () => {
+    setError(null)
     setIsDialogOpen(true)
   }
 
-  const handleSearch = (searchTerm: string, priceRange: [number, number], duration: number | null) => {
-    const filtered = servicesQuery.data?.filter((service) => {
-      const matchesSearch = service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        service.description.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesPrice = service.price >= priceRange[0] && service.price <= priceRange[1]
-      const matchesDuration = duration === null || service.duration === duration
-      return matchesSearch && matchesPrice && matchesDuration
-    })
-    setFilteredServices(filtered || [])
+  const handleCloseDialog = () => {
+    setError(null)
+    setIsDialogOpen(false)
+    setEditingService(null)
+    reset()
   }
 
-  const displayedServices = filteredServices.length > 0 ? filteredServices : servicesQuery.data || []
+  const handleEdit = (service: Service) => {
+    setEditingService(service)
+    reset({
+      name: service.name,
+      description: service.description,
+      price: service.price,
+      duration: service.duration
+    })
+    setIsDialogOpen(true)
+  }
+
+  const handleDelete = (serviceId: string) => {
+    if (window.confirm('Are you sure you want to delete this service?')) {
+      deleteMutation.mutate({ id: serviceId })
+    }
+  }
+
+  const onSubmit = (data: ServiceFormData) => {
+    setError(null)
+    if (editingService) {
+      updateMutation.mutate({
+        id: editingService.id,
+        ...data
+      })
+    } else {
+      createMutation.mutate({
+        businessId,
+        ...data
+      })
+    }
+  }
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
-        Services
-      </Typography>
-      <ServiceSearch onSearch={handleSearch} />
-      <RoleBasedAccess allowedRoles={['business_owner', 'admin']}>
-        <Button variant="contained" onClick={() => setIsDialogOpen(true)} sx={{ mb: 2 }}>
-          Add New Service
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between' }}>
+        <Typography variant="h5">Services</Typography>
+        <Button variant="contained" onClick={handleOpenDialog}>
+          Add Service
         </Button>
-      </RoleBasedAccess>
-      {servicesQuery.isLoading ? (
-        <Typography>Loading services...</Typography>
-      ) : servicesQuery.isError ? (
-        <Typography color="error">Error loading services</Typography>
-      ) : (
-        <List>
-          {displayedServices.map((service) => (
-            <ListItem key={service.id}>
-              <Accordion sx={{ width: '100%' }}>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <ListItemText 
-                    primary={service.name} 
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.primary">
-                          ${service.price.toFixed(2)} - {service.duration} minutes
-                        </Typography>
-                        <br />
-                        {service.description}
-                      </>
-                    }
-                  />
-                </AccordionSummary>
-                <AccordionDetails>
-                  <ServiceReviews serviceId={service.id} />
-                </AccordionDetails>
-              </Accordion>
-              <RoleBasedAccess allowedRoles={['business_owner', 'admin']}>
-                <Button onClick={() => handleEditService(service)}>
-                  Edit
-                </Button>
-              </RoleBasedAccess>
-            </ListItem>
-          ))}
-        </List>
-      )}
-      <Dialog open={isDialogOpen} onClose={() => setIsDialogOpen(false)}>
-        <DialogTitle>{editingService ? 'Edit Service' : 'Add New Service'}</DialogTitle>
-        <DialogContent>
-          <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
-            <Controller
-              name="name"
-              control={control}
-              defaultValue={editingService?.name || ''}
-              render={({ field, fieldState: { error } }) => (
-                <TextField
-                  {...field}
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="name"
-                  label="Service Name"
-                  error={!!error}
-                  helperText={error?.message}
-                />
-              )}
+      </Box>
+
+      <Grid container spacing={2}>
+        {services?.map((service: Service) => (
+          <Grid item xs={12} sm={6} md={4} key={service.id}>
+            <ServiceCard
+              service={service}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
             />
-            <Controller
-              name="description"
-              control={control}
-              defaultValue={editingService?.description || ''}
-              render={({ field, fieldState: { error } }) => (
-                <TextField
-                  {...field}
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="description"
-                  label="Service Description"
-                  multiline
-                  rows={4}
-                  error={!!error}
-                  helperText={error?.message}
-                />
-              )}
+          </Grid>
+        ))}
+      </Grid>
+
+      <Dialog open={isDialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {editingService ? 'Edit Service' : 'Add New Service'}
+        </DialogTitle>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <DialogContent>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            <TextField
+              margin="dense"
+              label="Name"
+              fullWidth
+              error={!!errors.name}
+              helperText={errors.name?.message}
+              {...register('name')}
             />
-            <Controller
-              name="price"
-              control={control}
-              defaultValue={editingService?.price || 0}
-              render={({ field, fieldState: { error } }) => (
-                <TextField
-                  {...field}
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="price"
-                  label="Price"
-                  type="number"
-                  error={!!error}
-                  helperText={error?.message}
-                />
-              )}
+            <TextField
+              margin="dense"
+              label="Description"
+              fullWidth
+              multiline
+              rows={3}
+              error={!!errors.description}
+              helperText={errors.description?.message}
+              {...register('description')}
             />
-            <Controller
-              name="duration"
-              control={control}
-              defaultValue={editingService?.duration || 0}
-              render={({ field, fieldState: { error } }) => (
-                <TextField
-                  {...field}
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="duration"
-                  label="Duration (minutes)"
-                  type="number"
-                  error={!!error}
-                  helperText={error?.message}
-                />
-              )}
+            <TextField
+              margin="dense"
+              label="Price"
+              type="number"
+              fullWidth
+              error={!!errors.price}
+              helperText={errors.price?.message}
+              {...register('price', { valueAsNumber: true })}
             />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSubmit(onSubmit)}>Save</Button>
-        </DialogActions>
+            <TextField
+              margin="dense"
+              label="Duration (minutes)"
+              type="number"
+              fullWidth
+              error={!!errors.duration}
+              helperText={errors.duration?.message}
+              {...register('duration', { valueAsNumber: true })}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending
+                ? 'Saving...'
+                : 'Save'}
+            </Button>
+          </DialogActions>
+        </form>
       </Dialog>
     </Box>
   )
 }
-
-export default ServiceManagement
-

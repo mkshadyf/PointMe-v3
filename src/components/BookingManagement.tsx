@@ -1,141 +1,258 @@
 import React, { useState } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { TextField, Button, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material'
-import { Elements } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
+import {
+  Box,
+  Button,
+  Typography,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Alert
+} from '@mui/material'
+import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { trpc } from '../utils/trpc'
-import { CreateBookingInput } from '../types/booking'
-import PaymentForm from './PaymentForm'
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
-
-const createBookingSchema = z.object({
-  serviceId: z.string().min(1, 'Service is required'),
-  startTime: z.string().min(1, 'Start time is required'),
+import { TRPCClientErrorLike } from '@trpc/client'
+import { toast } from 'react-hot-toast'
+import { z } from 'zod'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import useAuthStore from '@/stores/authStore'
+import { Booking } from '@/types/booking'
+ 
+const bookingSchema = z.object({
+  startTime: z.date(),
+  notes: z.string().optional()
 })
 
-const BookingManagement: React.FC = () => {
-  const { control, handleSubmit, reset } = useForm<CreateBookingInput>({
-    resolver: zodResolver(createBookingSchema),
+type BookingFormData = z.infer<typeof bookingSchema>
+
+interface BookingManagementProps {
+  businessId: string
+  serviceId: string
+}
+
+const BookingManagement: React.FC<BookingManagementProps> = ({
+  businessId,
+  serviceId
+}) => {
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
+
+  const utils = trpc.useContext()
+
+  const { data: bookings } = trpc.booking.list.useQuery({
+    serviceId,
+    userId: useAuthStore.getState().user?.id
   })
-  const [selectedBooking, setSelectedBooking] = useState<{ id: string; amount: number } | null>(null)
 
-  const createBookingMutation = trpc.business.createBooking.useMutation()
-  const userBookingsQuery = trpc.business.getUserBookings.useQuery()
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    setValue
+  } = useForm<BookingFormData>({
+    resolver: zodResolver(bookingSchema),
+    defaultValues: editingBooking ? {
+      startTime: new Date(editingBooking.startTime),
+      notes: editingBooking.notes || ''
+    } : {
+      startTime: new Date(),
+      notes: ''
+    }
+  })
 
-  const onSubmit = async (data: CreateBookingInput) => {
-    try {
-      await createBookingMutation.mutateAsync({
-        ...data,
-        startTime: new Date(data.startTime),
-      })
-      reset()
-      userBookingsQuery.refetch()
-    } catch (error) {
-      console.error('Failed to create booking:', error)
+  const createMutation = trpc.booking.create.useMutation({
+    onSuccess: () => {
+      utils.booking.list.invalidate()
+      handleCloseDialog()
+      toast.success('Booking created')
+    },
+    onError: (error: TRPCClientErrorLike<any>) => {
+      setError(error.message)
+      toast.error(error.message)
+    }
+  })
+
+  const updateMutation = trpc.booking.update.useMutation({
+    onSuccess: () => {
+      utils.booking.list.invalidate()
+      handleCloseDialog()
+      toast.success('Booking updated')
+    },
+    onError: (error: TRPCClientErrorLike<any>) => {
+      setError(error.message)
+      toast.error(error.message)
+    }
+  })
+
+  const cancelMutation = trpc.booking.cancel.useMutation({
+    onSuccess: () => {
+      utils.booking.list.invalidate()
+      toast.success('Booking cancelled')
+    },
+    onError: (error: TRPCClientErrorLike<any>) => {
+      setError(error.message)
+      toast.error(error.message)
+    }
+  })
+
+  const handleOpenDialog = () => {
+    setIsDialogOpen(true)
+    setError(null)
+    setEditingBooking(null)
+  }
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false)
+    setError(null)
+    setEditingBooking(null)
+    reset()
+  }
+
+  const handleEdit = (booking: Booking) => {
+    setEditingBooking(booking)
+    setValue('startTime', new Date(booking.startTime))
+    setValue('notes', booking.notes || '')
+    setIsDialogOpen(true)
+  }
+
+  const handleCancel = (bookingId: string) => {
+    if (window.confirm('Are you sure you want to cancel this booking?')) {
+      cancelMutation.mutate({ bookingId: bookingId })
     }
   }
 
-  const handlePaymentSuccess = () => {
-    setSelectedBooking(null)
-    userBookingsQuery.refetch()
+  const onSubmit = (data: BookingFormData) => {
+    setError(null)
+    if (editingBooking) {
+      updateMutation.mutate({
+        bookingId: editingBooking.id,
+        startTime: data.startTime,
+        endTime: new Date(data.startTime.getTime() + 60 * 60 * 1000), // 1 hour after start time
+        notes: data.notes
+      })
+    } else {
+      createMutation.mutate({
+        serviceId,
+        startTime: data.startTime,
+        endTime: new Date(data.startTime.getTime() + 60 * 60 * 1000), // 1 hour after start time
+        notes: data.notes
+      })
+    }
+  }
+
+  if (!bookings) {
+    return <Typography>Loading...</Typography>
   }
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
-        Book a Service
-      </Typography>
-      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
-        <Controller
-          name="serviceId"
-          control={control}
-          defaultValue=""
-          render={({ field, fieldState: { error } }) => (
-            <TextField
-              {...field}
-              margin="normal"
-              required
-              fullWidth
-              id="serviceId"
-              label="Service ID"
-              error={!!error}
-              helperText={error?.message}
-            />
-          )}
-        />
-        <Controller
-          name="startTime"
-          control={control}
-          defaultValue=""
-          render={({ field, fieldState: { error } }) => (
-            <TextField
-              {...field}
-              margin="normal"
-              required
-              fullWidth
-              id="startTime"
-              label="Start Time"
-              type="datetime-local"
-              InputLabelProps={{
-                shrink: true,
-              }}
-              error={!!error}
-              helperText={error?.message}
-            />
-          )}
-        />
-        <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
-          Book Service
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h6">Bookings</Typography>
+        <Button variant="contained" onClick={handleOpenDialog}>
+          New Booking
         </Button>
       </Box>
-      <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-        Your Bookings
-      </Typography>
-      {userBookingsQuery.isLoading ? (
-        <Typography>Loading bookings...</Typography>
-      ) : userBookingsQuery.isError ? (
-        <Typography color="error">Error loading bookings</Typography>
-      ) : (
-        <List>
-          {userBookingsQuery.data?.map((booking) => (
-            <ListItem key={booking.id}>
-              <ListItemText
-                primary={`${booking.service.name} - ${booking.status}`}
-                secondary={`Start: ${booking.startTime.toLocaleString()} - End: ${booking.endTime.toLocaleString()}`}
-              />
-              {booking.status === 'pending' && (
-                <Button
-                  onClick={() => setSelectedBooking({ id: booking.id, amount: booking.service.price })}
-                  variant="contained"
-                  color="primary"
-                >
-                  Pay
-                </Button>
-              )}
-            </ListItem>
-          ))}
-        </List>
-      )}
-      <Dialog open={!!selectedBooking} onClose={() => setSelectedBooking(null)}>
-        <DialogTitle>Complete Payment</DialogTitle>
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Date</TableCell>
+              <TableCell>Service</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {bookings.map((booking) => (
+              <TableRow key={booking.id}>
+                <TableCell>
+                  {new Date(booking.startTime).toLocaleString()}
+                </TableCell>
+                <TableCell>{booking.service.name}</TableCell>
+                <TableCell>{booking.status}</TableCell>
+                <TableCell>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    size="small"
+                    onClick={() => handleEdit(booking)}
+                  >
+                    Edit
+                  </Button>
+                  {booking.status !== 'cancelled' && (
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleCancel(booking.id)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Dialog open={isDialogOpen} onClose={handleCloseDialog}>
+        <DialogTitle>{editingBooking ? 'Edit Booking' : 'New Booking'}</DialogTitle>
         <DialogContent>
-          {selectedBooking && (
-            <Elements stripe={stripePromise}>
-              <PaymentForm
-                bookingId={selectedBooking.id}
-                amount={selectedBooking.amount}
-                onPaymentSuccess={handlePaymentSuccess}
-              />
-            </Elements>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
           )}
+          <Box component="form" onSubmit={handleSubmit(onSubmit)}>
+            <LocalizationProvider dateAdapter={AdapterDateFns}>
+              <DateTimePicker
+                label="Date & Time"
+                onChange={(date) => setValue('startTime', date || new Date())}
+                sx={{ width: '100%', mb: 2 }}
+              />
+            </LocalizationProvider>
+            <TextField
+              fullWidth
+              label="Notes"
+              multiline
+              rows={4}
+              {...register('notes')}
+              error={!!errors.notes}
+              helperText={errors.notes?.message}
+            />
+          </Box>
         </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog}>Cancel</Button>
+          <Button
+            onClick={handleSubmit(onSubmit)}
+            variant="contained"
+            disabled={createMutation.isPending || updateMutation.isPending}
+          >
+            {createMutation.isPending || updateMutation.isPending
+              ? 'Saving...'
+              : editingBooking
+                ? 'Update'
+                : 'Create'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   )
 }
 
 export default BookingManagement
-

@@ -1,103 +1,163 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Box, Typography, TextField, Button, List, ListItem, ListItemText, Paper } from '@mui/material';
-import { trpc } from '../utils/trpc';
-import { useAuthStore } from '../stores/authStore';
+import React, { useRef, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import {
+  Box,
+  TextField,
+  Typography,
+  Paper,
+  List,
+  ListItem,
+  Avatar,
+  IconButton,
+  Stack,
+} from '@mui/material'
+import { Send as SendIcon } from '@mui/icons-material'
+import { trpc } from '../utils/trpc'
+import { Message, User } from '../types'
 
-const Messaging: React.FC = () => {
-  const [selectedUser, setSelectedUser] = useState<{ id: string; name: string } | null>(null);
-  const [messageContent, setMessageContent] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuthStore();
+interface MessagingProps {
+  otherUserId: string
+}
 
-  const conversationsQuery = trpc.message.getConversations.useQuery();
-  const messagesQuery = trpc.message.getMessages.useQuery(selectedUser?.id || '', {
-    enabled: !!selectedUser,
-  });
-  const sendMessageMutation = trpc.message.sendMessage.useMutation();
+interface ChatWindowProps {
+  messages: Message[]
+  currentUser: User
+  onSendMessage: (content: string) => void
+  isLoading?: boolean
+}
+
+const messageSchema = z.object({
+  content: z.string().min(1, 'Message cannot be empty'),
+})
+
+type MessageFormData = z.infer<typeof messageSchema>
+
+const ChatWindow: React.FC<ChatWindowProps> = ({
+  messages,
+  currentUser,
+  onSendMessage,
+  isLoading,
+}) => {
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { register, handleSubmit, reset } = useForm<MessageFormData>({
+    resolver: zodResolver(messageSchema),
+  })
 
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messagesQuery.data]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedUser && messageContent.trim()) {
-      await sendMessageMutation.mutateAsync({
-        receiverId: selectedUser.id,
-        content: messageContent.trim(),
-      });
-      setMessageContent('');
-      messagesQuery.refetch();
-    }
-  };
+  const onSubmit = (data: MessageFormData) => {
+    onSendMessage(data.content)
+    reset()
+  }
 
   return (
-    <Box display="flex" height="600px">
-      <Paper elevation={3} sx={{ width: '30%', overflowY: 'auto', p: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          Conversations
-        </Typography>
-        <List>
-          {conversationsQuery.data?.map((conversation) => (
-            <ListItem
-              key={conversation.userId}
-              button
-              onClick={() => setSelectedUser({ id: conversation.userId, name: conversation.userName })}
-              selected={selectedUser?.id === conversation.userId}
+    <Paper elevation={3} sx={{ height: '600px', display: 'flex', flexDirection: 'column' }}>
+      <List sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
+        {messages.map((message) => (
+          <ListItem
+            key={message.id}
+            sx={{
+              display: 'flex',
+              justifyContent: message.senderId === currentUser.id ? 'flex-end' : 'flex-start',
+              mb: 2,
+            }}
+          >
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              sx={{
+                maxWidth: '70%',
+              }}
             >
-              <ListItemText
-                primary={conversation.userName}
-                secondary={conversation.lastMessage}
-              />
-            </ListItem>
-          ))}
-        </List>
-      </Paper>
-      <Box flex={1} display="flex" flexDirection="column" ml={2}>
-        {selectedUser ? (
-          <>
-            <Typography variant="h6" gutterBottom>
-              Chat with {selectedUser.name}
-            </Typography>
-            <Paper elevation={3} sx={{ flex: 1, overflowY: 'auto', p: 2, mb: 2 }}>
-              {messagesQuery.data?.map((message) => (
-                <Box
-                  key={message.id}
-                  alignSelf={message.senderId === user?.id ? 'flex-end' : 'flex-start'}
-                  bgcolor={message.senderId === user?.id ? 'primary.light' : 'grey.200'}
-                  color={message.senderId === user?.id ? 'primary.contrastText' : 'text.primary'}
-                  p={1}
-                  borderRadius={2}
-                  mb={1}
-                  maxWidth="70%"
-                >
-                  <Typography variant="body2">{message.content}</Typography>
-                </Box>
-              ))}
-              <div ref={messagesEndRef} />
-            </Paper>
-            <Box component="form" onSubmit={handleSendMessage} display="flex">
-              <TextField
-                fullWidth
-                variant="outlined"
-                placeholder="Type a message..."
-                value={messageContent}
-                onChange={(e) => setMessageContent(e.target.value)}
-              />
-              <Button type="submit" variant="contained" sx={{ ml: 1 }}>
-                Send
-              </Button>
-            </Box>
-          </>
-        ) : (
-          <Typography variant="h6">Select a conversation to start chatting</Typography>
-        )}
+              {message.senderId !== currentUser.id && (
+                <Avatar src={message.sender.avatar} alt={message.sender.name} />
+              )}
+              <Paper
+                elevation={1}
+                sx={{
+                  p: 2,
+                  bgcolor: message.senderId === currentUser.id ? 'primary.main' : 'grey.100',
+                  color: message.senderId === currentUser.id ? 'white' : 'text.primary',
+                }}
+              >
+                <Typography variant="body1">{message.content}</Typography>
+              </Paper>
+            </Stack>
+          </ListItem>
+        ))}
+        <div ref={messagesEndRef} />
+      </List>
+      <Box
+        component="form"
+        onSubmit={handleSubmit(onSubmit)}
+        sx={{
+          p: 2,
+          borderTop: 1,
+          borderColor: 'divider',
+          display: 'flex',
+          gap: 1,
+        }}
+      >
+        <TextField
+          {...register('content')}
+          fullWidth
+          placeholder="Type a message..."
+          variant="outlined"
+          size="small"
+        />
+        <IconButton type="submit" color="primary" disabled={isLoading}>
+          <SendIcon />
+        </IconButton>
       </Box>
-    </Box>
-  );
-};
+    </Paper>
+  )
+}
 
-export default Messaging;
+const Messaging: React.FC<MessagingProps> = ({ otherUserId }) => {
+  const { data: messages, refetch } = trpc.message.list.useQuery({
+    otherUserId,
+    cursor: 0,
+    limit: 50,
+  })
 
+  const { data: currentUser } = trpc.auth.me.useQuery()
+
+  const sendMessageMutation = trpc.message.send.useMutation({
+    onSuccess: () => {
+      refetch()
+    },
+  })
+
+  const handleSendMessage = (content: string) => {
+    if (!currentUser) return
+
+    sendMessageMutation.mutate({
+      receiverId: otherUserId,
+      content,
+    })
+  }
+
+  if (!messages || !currentUser) {
+    return <Typography>Loading...</Typography>
+  }
+
+  return (
+    <ChatWindow
+      messages={messages.items}
+      currentUser={{
+        ...currentUser,
+        createdAt: new Date(currentUser.createdAt),
+        updatedAt: new Date(currentUser.updatedAt),
+      }}
+      onSendMessage={handleSendMessage}
+      isLoading={sendMessageMutation.isPending}
+    />
+  )
+}
+
+export default Messaging

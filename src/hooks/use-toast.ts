@@ -1,6 +1,4 @@
-"use client"
-
-// Inspired by react-hot-toast library
+// Copied and adapted from: https://github.com/radix-ui/primitives/blob/main/packages/react/toast/src/Toast.tsx
 import * as React from "react"
 
 import type {
@@ -28,7 +26,7 @@ const actionTypes = {
 let count = 0
 
 function genId() {
-  count = (count + 1) % Number.MAX_SAFE_INTEGER
+  count = (count + 1) % Number.MAX_VALUE
   return count.toString()
 }
 

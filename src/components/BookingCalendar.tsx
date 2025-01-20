@@ -1,47 +1,74 @@
-import React from 'react'
-import FullCalendar from '@fullcalendar/react'
-import dayGridPlugin from '@fullcalendar/daygrid'
-import timeGridPlugin from '@fullcalendar/timegrid'
-import interactionPlugin from '@fullcalendar/interaction'
-import { Box, Typography } from '@mui/material'
+import React, { useState } from 'react'
 import { trpc } from '../utils/trpc'
+import { Booking, CreateBookingInput } from '../types'
+import {
+  Calendar,
+  momentLocalizer,
+  SlotInfo,
+  Event as CalendarEvent
+} from 'react-big-calendar'
+import moment from 'moment'
+import 'react-big-calendar/lib/css/react-big-calendar.css'
 
-const BookingCalendar: React.FC = () => {
-  const userBookingsQuery = trpc.business.getUserBookings.useQuery()
+const localizer = momentLocalizer(moment)
 
-  const events = userBookingsQuery.data?.map(booking => ({
+interface BookingCalendarProps {
+  serviceId: string
+  onBookingSelect?: (booking: Booking) => void
+  onSlotSelect?: (slotInfo: SlotInfo) => void
+  editable?: boolean
+}
+
+const BookingCalendar: React.FC<BookingCalendarProps> = ({
+  serviceId,
+  onBookingSelect,
+  onSlotSelect,
+  editable = false
+}) => {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  
+  const { data: bookings } = trpc.booking.list.useQuery({ serviceId })
+  const createMutation = trpc.booking.create.useMutation()
+  const updateMutation = trpc.booking.update.useMutation()
+  const cancelMutation = trpc.booking.cancel.useMutation()
+
+  const events: CalendarEvent[] = bookings?.map((booking: { id: any; user: { name: any }; startTime: string | number | Date; endTime: string | number | Date }) => ({
     id: booking.id,
-    title: booking.service.name,
-    start: booking.startTime,
-    end: booking.endTime,
+    title: `Booking: ${booking.user.name}`,
+    start: new Date(booking.startTime),
+    end: new Date(booking.endTime),
+    resource: booking
   })) || []
 
+  const handleSelectSlot = (slotInfo: SlotInfo) => {
+    if (editable && onSlotSelect) {
+      onSlotSelect(slotInfo)
+    }
+  }
+
+  const handleSelectEvent = (event: CalendarEvent) => {
+    if (onBookingSelect && event.resource) {
+      onBookingSelect(event.resource as Booking)
+    }
+  }
+
   return (
-    <Box>
-      <Typography variant="h5" gutterBottom>
-        Booking Calendar
-      </Typography>
-      <Box sx={{ height: 600 }}>
-        <FullCalendar
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-          initialView="timeGridWeek"
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay'
-          }}
-          events={events}
-          eventContent={(eventInfo) => (
-            <>
-              <b>{eventInfo.timeText}</b>
-              <i>{eventInfo.event.title}</i>
-            </>
-          )}
-        />
-      </Box>
-    </Box>
+    <div style={{ height: 600 }}>
+      <Calendar
+        localizer={localizer}
+        events={events}
+        startAccessor="start"
+        endAccessor="end"
+        selectable={editable}
+        onSelectSlot={handleSelectSlot}
+        onSelectEvent={handleSelectEvent}
+        defaultView="week"
+        views={['week', 'day']}
+        min={moment().set('hour', 8).toDate()}
+        max={moment().set('hour', 20).toDate()}
+      />
+    </div>
   )
 }
 
 export default BookingCalendar
-

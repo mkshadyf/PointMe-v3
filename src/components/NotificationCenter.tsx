@@ -1,15 +1,32 @@
-import React, { useState } from 'react'
-import { Badge, IconButton, Popover, List, ListItem, ListItemText, Typography, Box } from '@mui/material'
-import { Notifications as NotificationsIcon } from '@mui/icons-material'
+import { useState } from 'react'
 import { trpc } from '../utils/trpc'
+import { Notification } from '../types'
+import {
+  Badge,
+  IconButton,
+  Menu,
+  MenuItem,
+  ListItemText,
+  Typography
+} from '@mui/material'
+import { Notifications as NotificationsIcon } from '@mui/icons-material'
 
-const NotificationCenter: React.FC = () => {
-  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
+export default function NotificationCenter() {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const open = Boolean(anchorEl)
+  
+  const { data: notifications } = trpc.notification.list.useQuery({
+    cursor: 0,
+    limit: 20,
+    unreadOnly: false
+  })
+  const markAsReadMutation = trpc.notification.markAsRead.useMutation()
+  
+  const unreadCount = notifications?.items.filter(
+    (notification: Notification) => !notification.read
+  ).length
 
-  const notificationsQuery = trpc.notification.getUserNotifications.useQuery()
-  const markAsReadMutation = trpc.notification.markNotificationAsRead.useMutation()
-
-  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget)
   }
 
@@ -17,24 +34,34 @@ const NotificationCenter: React.FC = () => {
     setAnchorEl(null)
   }
 
-  const handleMarkAsRead = async (notificationId: string) => {
-    await markAsReadMutation.mutateAsync(notificationId)
-    notificationsQuery.refetch()
+  const handleMarkAsRead = (notificationId: string) => {
+    markAsReadMutation.mutate(notificationId)
   }
 
-  const open = Boolean(anchorEl)
-  const unreadCount = notificationsQuery.data?.filter(n => !n.read).length || 0
+  const formatNotificationTime = (date: Date) => {
+    const now = new Date()
+    const diff = now.getTime() - new Date(date).getTime()
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+
+    if (days > 0) return `${days} days ago`
+    if (hours > 0) return `${hours} hours ago`
+    if (minutes > 0) return `${minutes} minutes ago`
+    return 'Just now'
+  }
 
   return (
-    <>
-      <IconButton color="inherit" onClick={handleClick}>
+    <div>
+      <IconButton onClick={handleClick}>
         <Badge badgeContent={unreadCount} color="error">
           <NotificationsIcon />
         </Badge>
       </IconButton>
-      <Popover
-        open={open}
+
+      <Menu
         anchorEl={anchorEl}
+        open={open}
         onClose={handleClose}
         anchorOrigin={{
           vertical: 'bottom',
@@ -45,33 +72,25 @@ const NotificationCenter: React.FC = () => {
           horizontal: 'right',
         }}
       >
-        <Box sx={{ width: 300, maxHeight: 400, overflow: 'auto' }}>
-          <List>
-            {notificationsQuery.data?.map((notification) => (
-              <ListItem
-                key={notification.id}
-                onClick={() => handleMarkAsRead(notification.id)}
-                sx={{ cursor: 'pointer', bgcolor: notification.read ? 'transparent' : 'action.hover' }}
-              >
-                <ListItemText
-                  primary={notification.message}
-                  secondary={
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(notification.createdAt).toLocaleString()}
-                    </Typography>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-          {notificationsQuery.data?.length === 0 && (
-            <Typography sx={{ p: 2 }}>No notifications</Typography>
-          )}
-        </Box>
-      </Popover>
-    </>
+        {notifications?.total === 0 ? (
+          <MenuItem>
+            <Typography>No notifications</Typography>
+          </MenuItem>
+        ) : (
+          notifications?.items.map((notification: Notification) => (
+            <MenuItem
+              key={notification.id}
+              onClick={() => handleMarkAsRead(notification.id)}
+              sx={{ opacity: notification.read ? 0.6 : 1 }}
+            >
+              <ListItemText
+                primary={notification.content}
+                secondary={formatNotificationTime(notification.createdAt)}
+              />
+            </MenuItem>
+          ))
+        )}
+      </Menu>
+    </div>
   )
 }
-
-export default NotificationCenter
-

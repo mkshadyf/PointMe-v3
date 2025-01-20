@@ -1,66 +1,187 @@
-import React from 'react';
-import { useParams } from 'react-router-dom';
-import { Typography, Box, Paper, Grid, Rating, Chip } from '@mui/material';
-import { trpc } from '../utils/trpc';
-import BusinessReviews from './BusinessReviews';
+import { useState } from 'react'
+import {
+  Box,
+  Typography,
+  Grid,
+  Card,
+  CardContent,
+  CardMedia,
+  Chip,
+  Stack, 
+  Tabs,
+  Tab,
+  Rating 
+} from '@mui/material'
+import { useParams } from '@tanstack/react-router'
+import { trpc } from '../utils/trpc'
+import BusinessReviews from './BusinessReviews'
+import ServiceSearch from './ServiceSearch'
+import BookingManagement from './BookingManagement'
+import useAuthStore from '../stores/authStore'
 
-const PublicBusinessPage: React.FC = () => {
-  const { businessId } = useParams<{ businessId: string }>();
-  const businessQuery = trpc.business.getPublicBusinessDetails.useQuery(businessId!);
+interface TabPanelProps {
+  children?: React.ReactNode
+  index: number
+  value: number
+}
 
-  if (businessQuery.isLoading) {
-    return <Typography>Loading business details...</Typography>;
-  }
-
-  if (businessQuery.isError) {
-    return <Typography color="error">Error loading business details</Typography>;
-  }
-
-  const { name, description, services, averageRating } = businessQuery.data;
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props
 
   return (
-    <Box sx={{ maxWidth: 800, margin: 'auto', mt: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          {name}
-        </Typography>
-        {averageRating !== null && (
-          <Box display="flex" alignItems="center" mb={2}>
-            <Rating value={averageRating} readOnly precision={0.5} />
-            <Typography variant="body2" sx={{ ml: 1 }}>
-              ({averageRating.toFixed(1)})
-            </Typography>
-          </Box>
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`business-tabpanel-${index}`}
+      aria-labelledby={`business-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ p: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  )
+}
+
+function a11yProps(index: number) {
+  return {
+    id: `business-tab-${index}`,
+    'aria-controls': `business-tabpanel-${index}`,
+  }
+}
+
+export default function PublicBusinessPage() {
+  const [tabValue, setTabValue] = useState(0)
+  const { businessId } = useParams({ from: '/business/:businessId' })
+  const { user } = useAuthStore()
+
+  const { data: business } = trpc.business.get.useQuery({
+    id: businessId
+  })
+
+  const { data: stats } = trpc.business.getBusinessStats.useQuery({
+    businessId
+  })
+
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue)
+  }
+
+  if (!business) {
+    return (
+      <Typography>
+        Business not found
+      </Typography>
+    )
+  }
+
+  return (
+    <Box>
+      <Card sx={{ mb: 4 }}>
+        {business.coverImage && (
+          <CardMedia
+            component="img"
+            height="200"
+            image={business.coverImage}
+            alt={business.name}
+          />
         )}
-        <Typography variant="body1" paragraph>
-          {description}
-        </Typography>
-        <Typography variant="h6" gutterBottom>
-          Services
-        </Typography>
-        <Grid container spacing={2} sx={{ mb: 4 }}>
-          {services.map((service) => (
-            <Grid item key={service.id} xs={12} sm={6} md={4}>
-              <Paper elevation={2} sx={{ p: 2 }}>
-                <Typography variant="subtitle1">{service.name}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {service.description}
+        <CardContent>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={8}>
+              <Typography variant="h4" gutterBottom>
+                {business.name}
+              </Typography>
+              <Typography variant="body1" color="text.secondary" paragraph>
+                {business.description}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                {business.categories.map((category: string) => (
+                  <Chip key={category} label={category} size="small" />
+                ))}
+              </Stack>
+              <Stack spacing={1}>
+                <Typography variant="body2">
+                  Address: {business.address}
                 </Typography>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
+                <Typography variant="body2">
+                  Phone: {business.phone}
+                </Typography>
+                <Typography variant="body2">
+                  Email: {business.email}
+                </Typography>
+                {business.website && (
                   <Typography variant="body2">
-                    ${service.price.toFixed(2)}
+                    Website: <a href={business.website} target="_blank" rel="noopener noreferrer">{business.website}</a>
                   </Typography>
-                  <Chip label={`${service.duration} min`} size="small" />
-                </Box>
-              </Paper>
+                )}
+              </Stack>
             </Grid>
-          ))}
-        </Grid>
-        <BusinessReviews businessId={businessId!} />
-      </Paper>
+            <Grid item xs={12} md={4}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Business Stats
+                  </Typography>
+                  <Stack spacing={1}>
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Average Rating
+                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Rating value={stats?.averageRating || 0} readOnly precision={0.1} />
+                        <Typography>
+                          ({stats?.totalReviews || 0} reviews)
+                        </Typography>
+                      </Stack>
+                    </Box>
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Services
+                      </Typography>
+                      <Typography variant="h6">
+                        {stats?.totalServices || 0}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Bookings
+                      </Typography>
+                      <Typography variant="h6">
+                        {stats?.totalBookings || 0}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={tabValue} onChange={handleTabChange} aria-label="business tabs">
+          <Tab label="Services" {...a11yProps(0)} />
+          <Tab label="Reviews" {...a11yProps(1)} />
+          {user && <Tab label="Bookings" {...a11yProps(2)} />}
+        </Tabs>
+      </Box>
+
+      <TabPanel value={tabValue} index={0}>
+        <ServiceSearch onSearch={() => {}} />
+      </TabPanel>
+
+      <TabPanel value={tabValue} index={1}>
+        <BusinessReviews businessId={businessId} />
+      </TabPanel>
+
+      {user && (
+        <TabPanel value={tabValue} index={2}>
+          <BookingManagement serviceId={business.id} businessId={businessId} />
+        </TabPanel>
+      )}
     </Box>
-  );
-};
-
-export default PublicBusinessPage;
-
+  )
+}

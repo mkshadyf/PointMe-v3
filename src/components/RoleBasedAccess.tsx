@@ -1,17 +1,18 @@
 import React from 'react'
-import { useAuthStore } from '../stores/authStore'
-import { UserRole } from '../types/user'
+import { ReactNode } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 
 interface RoleBasedAccessProps {
-  allowedRoles: UserRole[]
-  children: React.ReactNode
+  children: ReactNode
+  roles: string[]
+  fallback?: ReactNode
 }
 
-const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({ allowedRoles, children }) => {
-  const user = useAuthStore((state) => state.user)
+const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({ children, roles, fallback = null }) => {
+  const { user } = useAuth()
 
-  if (!user || !allowedRoles.includes(user.role)) {
-    return null
+  if (!user || !roles.some(role => user.roles?.includes(role))) {
+    return <>{fallback}</>
   }
 
   return <>{children}</>

@@ -8,6 +8,7 @@ export interface Booking {
   paymentIntentId?: string
   createdAt: Date
   updatedAt: Date
+  notes?: string
 }
 
 export interface CreateBookingInput {

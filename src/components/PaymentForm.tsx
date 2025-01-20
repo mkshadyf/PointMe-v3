@@ -15,6 +15,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ bookingId, amount, onPaymentS
   const [error, setError] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
 
+  trpc.business.get.useQuery(
+    { id: bookingId || '' },
+    { queryKey: ['business.get', { id: bookingId || '' }], enabled: !!bookingId }
+  )
+
   const createPaymentIntentMutation = trpc.business.createPaymentIntent.useMutation()
   const confirmBookingPaymentMutation = trpc.business.confirmBookingPayment.useMutation()
 
@@ -32,6 +37,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ bookingId, amount, onPaymentS
         amount,
         currency: 'usd',
       })
+
+      if (!clientSecret) {
+        throw new Error('Client secret not found')
+      }
 
       const cardElement = elements.getElement(CardElement)
 
@@ -99,4 +108,3 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ bookingId, amount, onPaymentS
 }
 
 export default PaymentForm
-

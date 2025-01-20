@@ -1,66 +1,78 @@
-import React, { useState } from 'react'
-import { TextField, Select, MenuItem, InputLabel, FormControl, Box, Button } from '@mui/material'
-import { Search } from 'lucide-react'
+import { useState } from 'react'
+import {
+  Box,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Button,
+  Typography,
+  SelectChangeEvent
+} from '@mui/material'
 
 interface ServiceSearchProps {
-  onSearch: (searchTerm: string, priceRange: [number, number], duration: number | null) => void
+  onSearch: (query: string, priceRange: [number, number], duration: number | null) => void
 }
 
-const ServiceSearch: React.FC<ServiceSearchProps> = ({ onSearch }) => {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000])
+export default function ServiceSearch({ onSearch }: ServiceSearchProps) {
+  const [query, setQuery] = useState('')
+  const [minPrice, setMinPrice] = useState<number>(0)
+  const [maxPrice, setMaxPrice] = useState<number>(1000)
   const [duration, setDuration] = useState<number | null>(null)
 
+  const handleDurationChange = (event: SelectChangeEvent<number | null>) => {
+    setDuration(event.target.value as number | null)
+  }
+
   const handleSearch = () => {
-    onSearch(searchTerm, priceRange, duration)
+    onSearch(query, [minPrice, maxPrice], duration)
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 4 }}>
-      <TextField
-        label="Search services"
-        variant="outlined"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        fullWidth
-      />
-      <Box sx={{ display: 'flex', gap: 2 }}>
+    <Box sx={{ mb: 3 }}>
+      <Typography variant="h6" gutterBottom>
+        Search Services
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         <TextField
+          label="Search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          type="number"
           label="Min Price"
-          type="number"
-          variant="outlined"
-          value={priceRange[0]}
-          onChange={(e) => setPriceRange([Number(e.target.value), priceRange[1]])}
+          value={minPrice}
+          onChange={(e) => setMinPrice(Number(e.target.value))}
+          sx={{ width: 120 }}
         />
         <TextField
-          label="Max Price"
           type="number"
-          variant="outlined"
-          value={priceRange[1]}
-          onChange={(e) => setPriceRange([priceRange[0], Number(e.target.value)])}
+          label="Max Price"
+          value={maxPrice}
+          onChange={(e) => setMaxPrice(Number(e.target.value))}
+          sx={{ width: 120 }}
         />
-        <FormControl variant="outlined" sx={{ minWidth: 120 }}>
-          <InputLabel id="duration-label">Duration</InputLabel>
+        <FormControl sx={{ width: 200 }}>
+          <InputLabel>Duration</InputLabel>
           <Select
-            labelId="duration-label"
-            value={duration || ''}
-            onChange={(e) => setDuration(e.target.value as number | null)}
+            value={duration}
+            onChange={handleDurationChange}
             label="Duration"
           >
-            <MenuItem value={null}>Any</MenuItem>
-            <MenuItem value={30}>30 min</MenuItem>
+            <MenuItem value=''>Any</MenuItem>
+            <MenuItem value={30}>30 minutes</MenuItem>
             <MenuItem value={60}>1 hour</MenuItem>
             <MenuItem value={90}>1.5 hours</MenuItem>
             <MenuItem value={120}>2 hours</MenuItem>
           </Select>
         </FormControl>
-        <Button variant="contained" onClick={handleSearch} startIcon={<Search />}>
+        <Button variant="contained" onClick={handleSearch}>
           Search
         </Button>
       </Box>
     </Box>
   )
 }
-
-export default ServiceSearch
-

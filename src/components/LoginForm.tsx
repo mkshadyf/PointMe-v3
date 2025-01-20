@@ -1,46 +1,83 @@
-import React from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { TextField, Button, Box } from '@mui/material'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
-import { useAuthStore } from '../stores/authStore'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import useAuthStore from '../stores/authStore'
+import {
+  Box,
+  TextField,
+  Typography,
+  Button,
+  Container,
+  Alert
+} from '@mui/material'
+import { trpc } from '../utils/trpc'
+import type { User } from '../types'
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z.string().email(),
+  password: z.string().min(6)
 })
 
 type LoginFormData = z.infer<typeof loginSchema>
 
-const LoginForm: React.FC = () => {
-  const { control, handleSubmit } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  })
-  const login = useAuthStore((state) => state.login)
+export default function LoginForm() {
+  const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const { setAuth } = useAuthStore()
 
-  const onSubmit = async (data: LoginFormData) => {
-    // Here you would typically make an API call to authenticate
-    // For this example, we'll just simulate a successful login
-    login(
-      {
-        id: '1',
-        name: 'John Doe',
-        email: data.email,
-        role: 'user',
-      },
-      'fake-jwt-token'
-    )
+  const {
+    register,
+    handleSubmit,
+    formState: { errors }
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema)
+  })
+
+  const loginMutation = trpc.auth.signIn.useMutation({
+    onSuccess: (data) => {
+      if (data.user) {
+        setAuth(data.user, data.session?.access_token || null)
+        navigate('/')
+      }
+    },
+    onError: (error) => {
+      setError(error.message)
+    }
+  })
+
+  const onSubmit = (data: LoginFormData) => {
+    setError(null)
+    loginMutation.mutate(data)
   }
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
-      <Controller
-        name="email"
-        control={control}
-        defaultValue=""
-        render={({ field, fieldState: { error } }) => (
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center'
+        }}
+      >
+        <Typography component="h1" variant="h5">
+          Sign in
+        </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ width: '100%', mt: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        <Box
+          component="form"
+          onSubmit={handleSubmit(onSubmit)}
+          sx={{ mt: 1, width: '100%' }}
+        >
           <TextField
-            {...field}
             margin="normal"
             required
             fullWidth
@@ -48,37 +85,33 @@ const LoginForm: React.FC = () => {
             label="Email Address"
             autoComplete="email"
             autoFocus
-            error={!!error}
-            helperText={error?.message}
+            error={!!errors.email}
+            helperText={errors.email?.message}
+            {...register('email')}
           />
-        )}
-      />
-      <Controller
-        name="password"
-        control={control}
-        defaultValue=""
-        render={({ field, fieldState: { error } }) => (
           <TextField
-            {...field}
             margin="normal"
             required
             fullWidth
-            name="password"
             label="Password"
             type="password"
             id="password"
             autoComplete="current-password"
-            error={!!error}
-            helperText={error?.message}
+            error={!!errors.password}
+            helperText={errors.password?.message}
+            {...register('password')}
           />
-        )}
-      />
-      <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
-        Sign In
-      </Button>
-    </Box>
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={loginMutation.isPending}
+          >
+            {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
+          </Button>
+        </Box>
+      </Box>
+    </Container>
   )
 }
-
-export default LoginForm
-

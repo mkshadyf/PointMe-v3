@@ -1,56 +1,119 @@
-import { router, protectedProcedure } from '../trpc'
-import { z } from 'zod'
-import { TRPCError } from '@trpc/server'
-import { prisma } from '../prisma'
-
-const createNotificationSchema = z.object({
-  userId: z.string(),
-  message: z.string(),
-  type: z.enum(['info', 'success', 'warning', 'error']),
-})
-
+import { z } from 'zod';
+import { router, protectedProcedure } from '../trpc';
+import { TRPCError } from '@trpc/server';
+import { supabase } from '../supabase';
+ 
 export const notificationRouter = router({
-  createNotification: protectedProcedure
-    .input(createNotificationSchema)
-    .mutation(async ({ input }) => {
-      const notification = await prisma.notification.create({
-        data: {
-          ...input,
-          read: false,
-        },
+  list: protectedProcedure
+    .input(
+      z.object({
+        cursor: z.number().min(0).default(0),
+        limit: z.number().min(1).max(50).default(20),
+        unreadOnly: z.boolean().default(false),
       })
-      return notification
-    }),
+    )
+    .query(async ({ input, ctx }) => {
+      let query = supabase
+        .from('notifications')
+        .select(`
+          *,
+          user:users(*)
+        `, { count: 'exact' })
+        .eq('user_id', ctx.session.user.id)
+        .range(input.cursor, input.cursor + input.limit - 1)
+        .order('created_at', { ascending: false })
 
-  getUserNotifications: protectedProcedure
-    .query(async ({ ctx }) => {
-      const notifications = await prisma.notification.findMany({
-        where: { userId: ctx.user.id },
-        orderBy: { createdAt: 'desc' },
-      })
-      return notifications
-    }),
+      if (input.unreadOnly) {
+        query = query.eq('read', false)
+      }
 
-  markNotificationAsRead: protectedProcedure
-    .input(z.string())
-    .mutation(async ({ input, ctx }) => {
-      const notification = await prisma.notification.findUnique({
-        where: { id: input },
-      })
+      const { data: notifications, error, count } = await query
 
-      if (!notification || notification.userId !== ctx.user.id) {
+      if (error) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have permission to update this notification',
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
         })
       }
 
-      const updatedNotification = await prisma.notification.update({
-        where: { id: input },
-        data: { read: true },
-      })
+      return {
+        items: notifications,
+        nextCursor: notifications.length === input.limit ? input.cursor + input.limit : null,
+        total: count,
+      }
+    }),
 
-      return updatedNotification
+  markAsRead: protectedProcedure
+    .input(z.string())
+    .mutation(async ({ input, ctx }) => {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', input)
+        .eq('user_id', ctx.session.user.id)
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return { success: true }
+    }),
+
+  markAllAsRead: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', ctx.session.user.id)
+        .eq('read', false)
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return { success: true }
+    }),
+
+  getUnreadCount: protectedProcedure
+    .query(async ({ ctx }) => {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', ctx.session.user.id)
+        .eq('read', false)
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return { count }
+    }),
+
+  delete: protectedProcedure
+    .input(z.string())
+    .mutation(async ({ input, ctx }) => {
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', input)
+        .eq('user_id', ctx.session.user.id)
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return { success: true }
     }),
 })
-

@@ -1,91 +1,121 @@
-import { router, protectedProcedure } from '../trpc';
-import { z } from 'zod';
-import { TRPCError } from '@trpc/server';
-import { prisma } from '../prisma';
-
-const createMessageSchema = z.object({
-  receiverId: z.string(),
-  content: z.string().min(1).max(1000),
-});
-
+import { z } from 'zod'
+import { router, protectedProcedure } from '../trpc'
+import { TRPCError } from '@trpc/server'
+import { supabase } from '../supabase'
+ 
 export const messageRouter = router({
-  sendMessage: protectedProcedure
-    .input(createMessageSchema)
+  list: protectedProcedure
+    .input(
+      z.object({
+        otherUserId: z.string(),
+        cursor: z.number().min(0).default(0),
+        limit: z.number().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const { data: messages, error, count } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          sender:users!sender_id(*),
+          receiver:users!receiver_id(*)
+        `, { count: 'exact' })
+        .or(`and(sender_id.eq.${ctx.session.user.id},receiver_id.eq.${input.otherUserId}),and(sender_id.eq.${input.otherUserId},receiver_id.eq.${ctx.session.user.id})`)
+        .range(input.cursor, input.cursor + input.limit - 1)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return {
+        items: messages,
+        nextCursor: messages.length === input.limit ? input.cursor + input.limit : null,
+        total: count,
+      }
+    }),
+
+  send: protectedProcedure
+    .input(
+      z.object({
+        receiverId: z.string(),
+        content: z.string().min(1),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
-      const message = await prisma.message.create({
-        data: {
-          senderId: ctx.user.id,
-          receiverId: input.receiverId,
+      const { data: message, error } = await supabase
+        .from('messages')
+        .insert({
+          sender_id: ctx.session.user.id,
+          receiver_id: input.receiverId,
           content: input.content,
+        })
+        .select(`
+          *,
+          sender:users!sender_id(*),
+          receiver:users!receiver_id(*)
+        `)
+        .single()
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      // Create notification for receiver
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: input.receiverId,
+          type: 'message',
+          title: 'New Message',
+          content: `${ctx.session.user.email} sent you a message`,
           read: false,
-        },
-      });
+        })
 
-      // Create a notification for the receiver
-      await prisma.notification.create({
-        data: {
-          userId: input.receiverId,
-          message: `You have a new message from ${ctx.user.name}`,
-          type: 'info',
-        },
-      });
-
-      return message;
+      return message
     }),
 
-  getConversations: protectedProcedure
-    .query(async ({ ctx }) => {
-      const conversations = await prisma.message.findMany({
-        where: {
-          OR: [
-            { senderId: ctx.user.id },
-            { receiverId: ctx.user.id },
-          ],
-        },
-        orderBy: { createdAt: 'desc' },
-        distinct: ['senderId', 'receiverId'],
-        include: {
-          sender: { select: { id: true, name: true } },
-          receiver: { select: { id: true, name: true } },
-        },
-      });
-
-      return conversations.map((message) => ({
-        userId: message.senderId === ctx.user.id ? message.receiverId : message.senderId,
-        userName: message.senderId === ctx.user.id ? message.receiver.name : message.sender.name,
-        lastMessage: message.content,
-        lastMessageDate: message.createdAt,
-      }));
-    }),
-
-  getMessages: protectedProcedure
+  markAsRead: protectedProcedure
     .input(z.string())
-    .query(async ({ input: userId, ctx }) => {
-      const messages = await prisma.message.findMany({
-        where: {
-          OR: [
-            { senderId: ctx.user.id, receiverId: userId },
-            { senderId: userId, receiverId: ctx.user.id },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        include: {
-          sender: { select: { id: true, name: true } },
-          receiver: { select: { id: true, name: true } },
-        },
-      });
+    .mutation(async ({ input, ctx }) => {
+      const { error } = await supabase
+        .from('messages')
+        .update({ read: true })
+        .eq('id', input)
+        .eq('receiver_id', ctx.session.user.id)
 
-      // Mark messages as read
-      await prisma.message.updateMany({
-        where: {
-          senderId: userId,
-          receiverId: ctx.user.id,
-          read: false,
-        },
-        data: { read: true },
-      });
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
 
-      return messages;
+      return { success: true }
     }),
-});
 
+  delete: protectedProcedure
+    .input(z.string())
+    .mutation(async ({ input, ctx }) => {
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', input)
+        .eq('sender_id', ctx.session.user.id)
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        })
+      }
+
+      return { success: true }
+    }),
+})
