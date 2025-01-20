@@ -290,9 +290,9 @@ export default function BusinessManagement({ onSelectBusiness }: BusinessManagem
             <Button
               type="submit"
               variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
+              disabled={createMutation.isLoading || updateMutation.isLoading}
             >
-              {createMutation.isPending || updateMutation.isPending
+              {createMutation.isLoading || updateMutation.isLoading
                 ? 'Saving...'
                 : 'Save'}
             </Button>

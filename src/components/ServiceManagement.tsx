@@ -242,9 +242,9 @@ export default function ServiceManagement({ businessId }: ServiceManagementProps
             <Button
               type="submit"
               variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
+              disabled={createMutation.isLoading || updateMutation.isLoading}
             >
-              {createMutation.isPending || updateMutation.isPending
+              {createMutation.isLoading || updateMutation.isLoading
                 ? 'Saving...'
                 : 'Save'}
             </Button>

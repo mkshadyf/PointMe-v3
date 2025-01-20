@@ -155,7 +155,7 @@ const Messaging: React.FC<MessagingProps> = ({ otherUserId }) => {
         updatedAt: new Date(currentUser.updatedAt),
       }}
       onSendMessage={handleSendMessage}
-      isLoading={sendMessageMutation.isPending}
+      isLoading={sendMessageMutation.isLoading}
     />
   )
 }

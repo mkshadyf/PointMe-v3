@@ -17,7 +17,8 @@ import {
   TextField,
   Alert
 } from '@mui/material'
-import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { trpc } from '../utils/trpc'
 import { TRPCClientErrorLike } from '@trpc/client'
@@ -27,7 +28,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import useAuthStore from '@/stores/authStore'
 import { Booking } from '@/types/booking'
- 
+
 const bookingSchema = z.object({
   startTime: z.date(),
   notes: z.string().optional()
@@ -46,6 +47,7 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
 }) => {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date())
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
 
   const utils = trpc.useContext()
@@ -118,6 +120,7 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
     setError(null)
     setEditingBooking(null)
     reset()
+    setSelectedDate(null)
   }
 
   const handleEdit = (booking: Booking) => {
@@ -129,24 +132,25 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
 
   const handleCancel = (bookingId: string) => {
     if (window.confirm('Are you sure you want to cancel this booking?')) {
-      cancelMutation.mutate({ bookingId: bookingId })
+      cancelMutation.mutate({ bookingId })
     }
   }
 
   const onSubmit = (data: BookingFormData) => {
-    setError(null)
+    if (!selectedDate) return
+
     if (editingBooking) {
       updateMutation.mutate({
         bookingId: editingBooking.id,
-        startTime: data.startTime,
-        endTime: new Date(data.startTime.getTime() + 60 * 60 * 1000), // 1 hour after start time
+        startTime: selectedDate,
+        endTime: new Date(selectedDate.getTime() + 60 * 60 * 1000), // 1 hour after start time
         notes: data.notes
       })
     } else {
       createMutation.mutate({
         serviceId,
-        startTime: data.startTime,
-        endTime: new Date(data.startTime.getTime() + 60 * 60 * 1000), // 1 hour after start time
+        startTime: selectedDate,
+        endTime: new Date(selectedDate.getTime() + 60 * 60 * 1000), // 1 hour after start time
         notes: data.notes
       })
     }
@@ -221,8 +225,9 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
             <LocalizationProvider dateAdapter={AdapterDateFns}>
               <DateTimePicker
                 label="Date & Time"
-                onChange={(date) => setValue('startTime', date || new Date())}
-                sx={{ width: '100%', mb: 2 }}
+                value={selectedDate}
+                onChange={(newValue) => setSelectedDate(newValue)}
+                sx={{ width: '100%', mb: 2, mt: 2 }}
               />
             </LocalizationProvider>
             <TextField
@@ -233,6 +238,7 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
               {...register('notes')}
               error={!!errors.notes}
               helperText={errors.notes?.message}
+              sx={{ mt: 2 }}
             />
           </Box>
         </DialogContent>
@@ -241,9 +247,9 @@ const BookingManagement: React.FC<BookingManagementProps> = ({
           <Button
             onClick={handleSubmit(onSubmit)}
             variant="contained"
-            disabled={createMutation.isPending || updateMutation.isPending}
+            disabled={createMutation.isLoading || updateMutation.isLoading}
           >
-            {createMutation.isPending || updateMutation.isPending
+            {createMutation.isLoading || updateMutation.isLoading
               ? 'Saving...'
               : editingBooking
                 ? 'Update'

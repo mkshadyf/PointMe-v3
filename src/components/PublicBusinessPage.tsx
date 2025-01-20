@@ -1,187 +1,95 @@
-import { useState } from 'react'
+import React from 'react'
 import {
   Box,
   Typography,
+  Container,
   Grid,
   Card,
   CardContent,
-  CardMedia,
-  Chip,
-  Stack, 
-  Tabs,
-  Tab,
-  Rating 
+  Button,
+  Divider
 } from '@mui/material'
-import { useParams } from '@tanstack/react-router'
+import { useParams, Link as RouterLink } from 'react-router-dom'
 import { trpc } from '../utils/trpc'
 import BusinessReviews from './BusinessReviews'
-import ServiceSearch from './ServiceSearch'
-import BookingManagement from './BookingManagement'
-import useAuthStore from '../stores/authStore'
-
-interface TabPanelProps {
-  children?: React.ReactNode
-  index: number
-  value: number
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`business-tabpanel-${index}`}
-      aria-labelledby={`business-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  )
-}
-
-function a11yProps(index: number) {
-  return {
-    id: `business-tab-${index}`,
-    'aria-controls': `business-tabpanel-${index}`,
-  }
-}
+import { Business, Service } from '../types'
 
 export default function PublicBusinessPage() {
-  const [tabValue, setTabValue] = useState(0)
-  const { businessId } = useParams({ from: '/business/:businessId' })
-  const { user } = useAuthStore()
-
-  const { data: business } = trpc.business.get.useQuery({
-    id: businessId
+  const { businessId } = useParams<{ businessId: string }>()
+  const { data: business, isLoading } = trpc.business.get.useQuery({
+    id: businessId!
   })
 
-  const { data: stats } = trpc.business.getBusinessStats.useQuery({
-    businessId
-  })
-
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue)
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+        <Typography>Loading...</Typography>
+      </Box>
+    )
   }
 
   if (!business) {
     return (
-      <Typography>
-        Business not found
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+        <Typography>Business not found</Typography>
+      </Box>
     )
   }
 
   return (
-    <Box>
-      <Card sx={{ mb: 4 }}>
-        {business.coverImage && (
-          <CardMedia
-            component="img"
-            height="200"
-            image={business.coverImage}
-            alt={business.name}
-          />
-        )}
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={8}>
-              <Typography variant="h4" gutterBottom>
-                {business.name}
-              </Typography>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                {business.description}
-              </Typography>
-              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-                {business.categories.map((category: string) => (
-                  <Chip key={category} label={category} size="small" />
-                ))}
-              </Stack>
-              <Stack spacing={1}>
-                <Typography variant="body2">
-                  Address: {business.address}
-                </Typography>
-                <Typography variant="body2">
-                  Phone: {business.phone}
-                </Typography>
-                <Typography variant="body2">
-                  Email: {business.email}
-                </Typography>
-                {business.website && (
-                  <Typography variant="body2">
-                    Website: <a href={business.website} target="_blank" rel="noopener noreferrer">{business.website}</a>
-                  </Typography>
-                )}
-              </Stack>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
-                    Business Stats
-                  </Typography>
-                  <Stack spacing={1}>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Average Rating
-                      </Typography>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Rating value={stats?.averageRating || 0} readOnly precision={0.1} />
-                        <Typography>
-                          ({stats?.totalReviews || 0} reviews)
-                        </Typography>
-                      </Stack>
-                    </Box>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Total Services
-                      </Typography>
-                      <Typography variant="h6">
-                        {stats?.totalServices || 0}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Total Bookings
-                      </Typography>
-                      <Typography variant="h6">
-                        {stats?.totalBookings || 0}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
+    <Container maxWidth="lg">
+      <Box sx={{ my: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          {business.name}
+        </Typography>
+        <Typography color="text.secondary" gutterBottom>
+          {business.description}
+        </Typography>
+
+        <Box sx={{ my: 4 }}>
+          <Typography variant="h5" gutterBottom>
+            Services
+          </Typography>
+          <Grid container spacing={3}>
+            {business.services.map((service: Service) => (
+              <Grid item xs={12} sm={6} md={4} key={service.id}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6">{service.name}</Typography>
+                    <Typography color="text.secondary">
+                      {service.description}
+                    </Typography>
+                    <Typography variant="h6" sx={{ mt: 2 }}>
+                      ${service.price}
+                    </Typography>
+                    <RouterLink 
+                      to={`/book/${service.id}`} 
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <Button
+                        variant="contained"
+                        sx={{ mt: 2 }}
+                        fullWidth
+                      >
+                        Book Now
+                      </Button>
+                    </RouterLink>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
           </Grid>
-        </CardContent>
-      </Card>
+        </Box>
 
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tabValue} onChange={handleTabChange} aria-label="business tabs">
-          <Tab label="Services" {...a11yProps(0)} />
-          <Tab label="Reviews" {...a11yProps(1)} />
-          {user && <Tab label="Bookings" {...a11yProps(2)} />}
-        </Tabs>
+        <Divider sx={{ my: 4 }} />
+
+        <Box sx={{ my: 4 }}>
+          <Typography variant="h5" gutterBottom>
+            Reviews
+          </Typography>
+          <BusinessReviews businessId={business.id} />
+        </Box>
       </Box>
-
-      <TabPanel value={tabValue} index={0}>
-        <ServiceSearch onSearch={() => {}} />
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={1}>
-        <BusinessReviews businessId={businessId} />
-      </TabPanel>
-
-      {user && (
-        <TabPanel value={tabValue} index={2}>
-          <BookingManagement serviceId={business.id} businessId={businessId} />
-        </TabPanel>
-      )}
-    </Box>
+    </Container>
   )
 }

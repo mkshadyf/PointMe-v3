@@ -13,8 +13,7 @@ import {
   Alert
 } from '@mui/material'
 import { trpc } from '../utils/trpc'
-import type { User } from '../types'
-
+ 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6)
@@ -106,9 +105,9 @@ export default function LoginForm() {
             fullWidth
             variant="contained"
             sx={{ mt: 3, mb: 2 }}
-            disabled={loginMutation.isPending}
+            disabled={loginMutation.isLoading}
           >
-            {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
+            {loginMutation.isLoading ? 'Signing in...' : 'Sign In'}
           </Button>
         </Box>
       </Box>
